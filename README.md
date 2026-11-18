@@ -4,9 +4,8 @@ Connect signed-in users' app activity and push notifications to Kirora through o
 API. The package wraps Kirora's native Android and iOS SDKs, which own event storage,
 sessions, consent, delivery retries and notification handling.
 
-**Preview: 0.1.0, not published to pub.dev.** Open consent and native lifecycle issues
-remain. Read the [review](docs/review.md) before production integration. This guide
-describes the implemented API and its limits; it does not certify production readiness.
+**Preview: 0.1.0, not published to pub.dev.** This guide describes the implemented API and
+its limits; it does not certify production readiness.
 
 ## Requirements and installation
 
@@ -205,7 +204,7 @@ handled as dropped events.
 Context is empty in this wrapper hook. Native code adds automatic context later; returned
 context is not forwarded. The hook cannot redact native device/session context or
 operational reports. Native automatic session/lifecycle events bypass the wrapper hook,
-as the shared wrapper specification permits.
+by design.
 
 Keep the callback to redaction: no collection or network side effects inside it.
 
@@ -414,9 +413,8 @@ or use a real iOS host and configure its Podfile/capabilities before validating 
 Do not assume the Android example directory is already an iOS Runner project.
 
 Run the suite with `flutter test`; it covers the channel contract against a mock
-messenger, not a native engine. See the [review](docs/review.md) for what was verified.
+messenger, not a native engine.
 Full iOS plugin linking, real-device push and multi-engine execution remain unverified.
-The shared [SDK contract](../../omnichannel/docs/sdk-interface.md) defines intended behavior.
 
 ## License and publication
 
