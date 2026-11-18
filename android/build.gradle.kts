@@ -47,6 +47,10 @@ android {
         minSdk = 24
         consumerProguardFiles("consumer-rules.pro")
     }
+
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
 }
 
 kotlin {
@@ -60,4 +64,10 @@ dependencies {
     // The core SDK, and the Firebase side of push (FCM service, notification permission).
     api("com.kirora:android-sdk:$kiroraSdkVersion")
     implementation("com.kirora:android-sdk-push:$kiroraSdkVersion")
+
+    // Unverified: see KiroraFlutterPluginTest. Needs a Flutter build that supplies the embedding.
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("androidx.test:core:1.7.0")
+    testImplementation("org.robolectric:robolectric:4.17")
+    testImplementation("org.mockito:mockito-core:5.14.2")
 }
