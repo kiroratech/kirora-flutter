@@ -30,13 +30,6 @@ flutter_ios_podfile_setup
 target 'Runner' do
   use_frameworks!
 
-  # The Kirora iOS SDK isn't on CocoaPods yet: point at a checkout of kirora-ios (CI sets this).
-  # Not with Swift Package Manager, where the plugin's Package.swift brings it in.
-  dependencies = flutter_parse_plugins_file(File.join(File.dirname(File.realpath(__FILE__)), '..', '.flutter-plugins-dependencies'))
-  if ENV['KIRORA_IOS_PATH'] && !flutter_get_swift_package_manager_enabled(dependencies, 'ios')
-    pod 'Kirora', :path => ENV['KIRORA_IOS_PATH']
-  end
-
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
   target 'RunnerTests' do
     inherit! :search_paths

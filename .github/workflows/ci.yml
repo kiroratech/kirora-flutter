@@ -129,6 +129,11 @@ jobs:
           cache: true
       # Both integrations build Kirora from the checkout (KIRORA_IOS_PATH): it has no release yet.
       - run: flutter config ${{ matrix.spm }}
+      # Kirora isn't on CocoaPods trunk yet: the app points at the checkout, as the README says.
+      # Not with Swift Package Manager, where the Podfile must stay standard for Flutter to drop it.
+      - name: Point the example's Podfile at the kirora-ios checkout
+        if: matrix.integration == 'cocoapods'
+        run: perl -pi -e 's/^(\s*)use_frameworks!\n/$&$1pod "Kirora", :path => ENV["KIRORA_IOS_PATH"]\n/' example/ios/Podfile
       - name: Build the example app for the simulator (compiles the plugin)
         working-directory: example
         run: flutter build ios --simulator --debug
