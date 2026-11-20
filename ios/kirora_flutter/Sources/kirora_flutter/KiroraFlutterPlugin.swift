@@ -182,12 +182,25 @@ public final class KiroraFlutterPlugin: NSObject, FlutterPlugin {
             tokens = nil
         }
 
+        // A token that fails outside a call (a background refresh): Dart hears the spec's reason,
+        // tagged with this setup's generation so a newer Dart instance ignores it.
+        var onAuthenticationFailed: (@MainActor @Sendable (AuthenticationFailureReason) -> Void)?
+        if args["hasAuthenticationFailedHandler"] as? Bool == true {
+            let channel = self.channel
+            let generation = (args["generation"] as? NSNumber)?.int64Value ?? 0
+            onAuthenticationFailed = { reason in
+                channel.invokeMethod(
+                    "authenticationFailed", arguments: ["reason": reason.rawValue, "generation": generation])
+            }
+        }
+
         let push = args["push"] as? Bool == true
             ? PushOptions(pushAppId: (args["pushAppId"] as? String).flatMap { $0.isEmpty ? nil : $0 })
             : nil
         kirora = Kirora(options: KiroraOptions(
             clientKey: (args["clientKey"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
             fetchUserToken: fetchUserToken,
+            onAuthenticationFailed: onAuthenticationFailed,
             push: push,
             requireTrackingConsent: args["requireTrackingConsent"] as? Bool == true,
             trackSessions: args["trackSessions"] as? Bool ?? true,

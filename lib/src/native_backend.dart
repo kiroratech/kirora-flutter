@@ -17,6 +17,13 @@ const kiroraChannelName = 'io.kirora.flutter/sdk';
 class NativeBackend {
   final LogLevel _logLevel;
 
+  /// This instance's native client. This handler takes over the channel before its `configure`
+  /// reaches native, so a failure the old client reports in between carries the old generation and
+  /// is dropped rather than signing out this one. Seeded from the clock so a hot restart, which
+  /// resets Dart statics but not native, never reuses a number.
+  final int _generation = ++_lastGeneration;
+  static int _lastGeneration = DateTime.now().microsecondsSinceEpoch;
+
   /// With [available] false (no native SDK on this platform) nothing reaches the channel: every
   /// call is a safe no-op, and one error log says why.
   NativeBackend(KiroraOptions options, this._channel, {bool available = true})
@@ -32,6 +39,7 @@ class NativeBackend {
     final handleDeepLink = options.handleDeepLink;
     final push = options.push;
     final foreground = push?.onForegroundNotification;
+    final authFailed = options.onAuthenticationFailed;
     // The native SDK calls back for the app's token, the foreground decision, taps and pushes.
     _channel.setMethodCallHandler((call) async {
       switch (call.method) {
@@ -56,7 +64,7 @@ class NativeBackend {
             return true;
           }
         case 'handleDeepLink':
-          final args = call.arguments is Map ? call.arguments as Map : const {};
+          final args = _args(call.arguments);
           final url = Uri.tryParse(args['url'] as String? ?? '');
           if (handleDeepLink == null || url == null) return false;
           // The native SDK has stopped waiting and opened the link itself: the app must not also.
@@ -66,6 +74,16 @@ class NativeBackend {
             return await handleDeepLink(url) == true;
           } catch (_) {
             return false;
+          }
+        case 'authenticationFailed':
+          final args = _args(call.arguments);
+          if (authFailed == null || args['generation'] != _generation) return null;
+          final reason = AuthenticationFailure.values.where((r) => r.wireName == args['reason']).firstOrNull;
+          if (reason == null) return null;
+          try {
+            authFailed(reason);
+          } catch (e) {
+            _logError('onAuthenticationFailed threw: ${e.runtimeType}');
           }
         case 'notificationClicked':
           _clicks.add(_strings(call.arguments));
@@ -88,14 +106,16 @@ class NativeBackend {
       'hasTokenProvider': fetchUserToken != null,
       'smallIcon': push?.smallIcon,
       'accentColor': push?.accentColor,
-      'channelId': push?.channelId,
-      'channelName': push?.channelName,
+      'defaultChannelId': push?.defaultChannelId,
+      'defaultChannelName': push?.defaultChannelName,
       'hasForegroundHandler': foreground != null,
       'hasDeepLinkHandler': handleDeepLink != null,
+      'hasAuthenticationFailedHandler': authFailed != null,
+      'generation': _generation,
       'sdkVersion': sdkVersion,
     }).then((answer) {
       // The native SDK's tracking answer at setup: a remembered choice, or the default.
-      final consent = answer is Map ? answer['trackingConsent'] : null;
+      final consent = _args(answer)['trackingConsent'];
       _storedConsent = consent is bool ? consent : _consentByDefault;
     }, onError: (Object e) {
       if (e is MissingPluginException) {
@@ -168,6 +188,8 @@ class NativeBackend {
         'received': _received.hasListener,
       });
 
+  static Map<Object?, Object?> _args(Object? arguments) => arguments is Map ? arguments : const {};
+
   static NotificationData _strings(Object? arguments) => {
         for (final e in (arguments as Map? ?? const {}).entries)
           if (e.value != null) e.key.toString(): e.value.toString(),
@@ -231,7 +253,7 @@ class NativeBackend {
       };
 
   static KiroraApiError _apiError(PlatformException e) {
-    final d = e.details is Map ? e.details as Map : const {};
+    final d = _args(e.details);
     return KiroraApiError(
       (d['status'] as num?)?.toInt() ?? 0,
       d['code'] as String?,

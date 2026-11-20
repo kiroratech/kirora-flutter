@@ -13,6 +13,7 @@ they do the work (queue, visits, consent, push, retries, sign-out).
 - Options: `fetchUserToken` (answered from Dart for the native SDK, 30 s for the round trip),
   `beforeSend` (redacts or drops an event the app tracks, in Dart, before it is forwarded and
   stored; never called for an event tracking doesn't allow), `handleDeepLink` and `onForegroundNotification` (asked over the channel, 1.5 s at most),
+  `onAuthenticationFailed` (a token that fails outside a call: `fetchFailed` or `refused`),
   `requireTrackingConsent`, `trackSessions`, `trackAppLifecycle`, `logLevel`, `apiUrl`, and Android's
   notification appearance.
 - `Kirora-SDK: kirora-flutter/<version>` on both platforms.
@@ -26,5 +27,8 @@ they do the work (queue, visits, consent, push, retries, sign-out).
 - Where no native SDK is linked (web, desktop, an app's unit tests) every call does nothing and never
   throws, one error log says so, and `isAvailable` is `false`. `KiroraMock`
   (`package:kirora_flutter/testing.dart`) stands in for `Kirora` in an app's tests.
-- Until the native SDKs are published: Android builds against `mavenLocal()`, and the iOS app's
-  Podfile points the `Kirora` pod at a local kirora-ios.
+- Requires Flutter 3.44 or later (Dart 3.12). Android builds with AGP 8.9.3 / Kotlin 2.1.0 and later.
+- iOS supports Swift Package Manager (`ios/kirora_flutter/Package.swift`, depending on Flutter's
+  generated `FlutterFramework` package) as well as CocoaPods.
+- Until the native SDKs are published: Android builds against `mavenLocal()`, and the iOS app
+  points at a local kirora-ios (a local Swift package, or the `Kirora` pod by path).

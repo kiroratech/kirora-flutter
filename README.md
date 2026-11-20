@@ -4,17 +4,15 @@ Connect signed-in users' app activity and push notifications to Kirora through o
 API. The package wraps Kirora's native Android and iOS SDKs, which own event storage,
 sessions, consent, delivery retries and notification handling.
 
-**Preview: 0.1.0, not published to pub.dev.** Open consent and native lifecycle issues
-remain. Read the [review](docs/review.md) before production integration. This guide
-describes the implemented API and its limits; it does not certify production readiness.
+**Preview: 0.1.0, not published to pub.dev.** This guide describes the implemented API and
+its limits; it does not certify production readiness.
 
 ## Requirements and installation
 
 | Component | Requirement |
 | --- | --- |
-| Dart | `^3.13.1` according to `pubspec.yaml`. Use a Flutter distribution containing a compatible Dart SDK. |
-| Flutter | Declared `>=3.22.0`, additionally constrained by Dart. Reviewed with Flutter 3.50.0 / Dart 3.14.0; a full compatibility matrix is not established. |
-| Android | API 24+, compileSdk 36 and Java 17. The plugin uses AGP 9.1.1 and its Kotlin build configuration; align your host toolchain with the resolved dependencies. |
+| Flutter | 3.44 or later (Dart 3.12 or later). Built and tested with Flutter 3.44.4 and 3.50.0. |
+| Android | API 24+, compileSdk 36 and Java 17. Builds with AGP 8.9.3 / Kotlin 2.1.0 and AGP 9 (built-in Kotlin, or `android.builtInKotlin=false`). |
 | iOS | iOS 13+ and Swift 5.9 in the podspec. Your Flutter/Xcode combination may require a higher deployment target. |
 | Platforms | Native plugin implementations exist for Android and iOS. Web and desktop have no Kirora native backend. |
 
@@ -42,19 +40,41 @@ For local development, publish the native Android libraries from their checkout:
 ./gradlew :kirora-sdk:publishToMavenLocal :kirora-sdk-push:publishToMavenLocal
 ```
 
-Ensure your host repositories permit `mavenLocal()`; the plugin and example already
-include it. Verify the resolved artifact after updating native sources. A reused local
+Your app resolves the plugin's Kirora dependencies from its own repositories, so add
+`mavenLocal()` to your host's `android/build.gradle(.kts)` (a plugin can't add it for you;
+the example already has it):
+
+```kotlin
+allprojects {
+    repositories {
+        // ...
+        mavenLocal { content { includeGroup("com.kirora") } }
+    }
+}
+```
+
+Verify the resolved artifact after updating native sources. A reused local
 version label does not prove the latest code reached your app.
 
-iOS uses CocoaPods and depends on `Kirora ~> 0.1`. Until that pod is available from your
-configured repository, point your host's `Runner` target to the local native checkout:
+iOS supports both Swift Package Manager and CocoaPods; Flutter picks whichever your app
+uses. Both depend on Kirora iOS 0.1 or later, below 1.0 (iOS 13+).
+
+**Swift Package Manager.** The plugin's `Package.swift` depends on
+`https://github.com/kiroratech/kirora-ios.git` from `0.1.0`. Until that version is tagged,
+build against a local checkout by setting `KIRORA_IOS_PATH` to its path in the environment
+of `flutter build`/`flutter run`. The checkout's folder must be named `kirora-ios`: Swift
+Package Manager names a local package after its folder. Xcode caches package manifests: if a change to it isn't picked
+up, run `flutter clean`.
+
+**CocoaPods.** Until the `Kirora` pod is available from your configured repository, point
+your host's `Runner` target to the local native checkout:
 
 ```ruby
 pod 'Kirora', :path => '/absolute/path/to/kirora-ios'
 ```
 
 Run `pod install` from the host's `ios` directory. The plugin podspec is discovered
-automatically. This package does not currently include a Swift Package Manager manifest.
+automatically.
 
 ## Create one retained client
 
@@ -125,6 +145,21 @@ try {
 The native token request has a 30-second round-trip limit. A missing/empty token or
 provider failure is reported as `UserTokenError`. Native code owns refresh and stale
 answer handling.
+
+A token that fails later, outside any call (a background refresh), has no call to throw
+from. Set `onAuthenticationFailed` to hear about it:
+
+```dart
+onAuthenticationFailed: (reason) {
+  // AuthenticationFailure.fetchFailed: fetchUserToken threw, gave nothing or timed out.
+  // AuthenticationFailure.refused: a 401 with no fresh token to try, or the fresh one refused.
+  auth.askUserToSignInAgain();
+},
+```
+
+It is called once per failure, and again only after a request with that user's token
+succeeds or `identify()` is called. It is never called for a failure a method call throws
+(`identify()`, `setPushConsent()`), a cancelled call, or while the user signs out.
 
 Events tracked before anyone is identified remain unbound and can be adopted by the
 next user. They are not sent anonymously. On a direct switch from A to B, A's owned
@@ -205,7 +240,7 @@ handled as dropped events.
 Context is empty in this wrapper hook. Native code adds automatic context later; returned
 context is not forwarded. The hook cannot redact native device/session context or
 operational reports. Native automatic session/lifecycle events bypass the wrapper hook,
-as the shared wrapper specification permits.
+by design.
 
 Keep the callback to redaction: no collection or network side effects inside it.
 
@@ -265,8 +300,8 @@ Delivery still depends on Android permissions, settings and FCM/background behav
 push: KiroraPushOptions(
   smallIcon: 'ic_notification',
   accentColor: '#FF5500',
-  channelId: 'kirora_default',
-  channelName: 'Notifications',
+  defaultChannelId: 'kirora_default',
+  defaultChannelName: 'Notifications',
   onForegroundNotification: (data) => data['plan'] != 'muted',
 ),
 ```
@@ -308,7 +343,7 @@ await kirora.setPushEnabled(false);
 // Later: await kirora.setPushEnabled(true);
 
 final tapSubscription = kirora.onNotificationClicked.listen((data) {
-  // Observe the tap; native code owns reporting and link opening.
+  // Observe the tap; native code reports it (waiting 1.5 s at most) and opens its link.
 });
 final receiveSubscription = kirora.onNotificationReceived.listen((data) {
   // Android only; iOS does not emit this stream.
@@ -409,14 +444,16 @@ flutter build apk --debug
 ```
 
 The Android example builds without Firebase configuration; live push needs your own
-Firebase project and device. There is currently no checked-in iOS example host, so create
-or use a real iOS host and configure its Podfile/capabilities before validating that side.
-Do not assume the Android example directory is already an iOS Runner project.
+Firebase project and device. The iOS example builds for the simulator with
+`KIRORA_IOS_PATH=/path/to/kirora-ios flutter build ios --simulator` (CocoaPods or Swift
+Package Manager); push on iOS needs your own signing, capabilities and a device. CI builds
+both platforms on every code change.
 
 Run the suite with `flutter test`; it covers the channel contract against a mock
-messenger, not a native engine. See the [review](docs/review.md) for what was verified.
-Full iOS plugin linking, real-device push and multi-engine execution remain unverified.
-The shared [SDK contract](../../omnichannel/docs/sdk-interface.md) defines intended behavior.
+messenger, not a native engine. The Android bridge has Robolectric tests:
+`cd example/android && ./gradlew :kirora_flutter:testDebugUnitTest`.
+iOS plugin linking (built only in CI), real-device push and multi-engine execution remain
+unverified.
 
 ## License and publication
 

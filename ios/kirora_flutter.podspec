@@ -9,7 +9,7 @@ Pod::Spec.new do |s|
   s.license          = { :file => '../LICENSE' }
   s.author           = 'Kirora'
   s.source           = { :path => '.' }
-  s.source_files     = 'Classes/**/*.swift'
+  s.source_files     = 'kirora_flutter/Sources/kirora_flutter/**/*.swift'
   s.dependency 'Flutter'
   s.dependency 'Kirora', '~> 0.1'
   s.platform         = :ios, '13.0'

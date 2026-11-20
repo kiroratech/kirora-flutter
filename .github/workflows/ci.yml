@@ -1,0 +1,134 @@
+name: CI
+
+# Checks only: analyze, test and build. Nothing here publishes, tags or releases.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', 'LICENSE']
+  pull_request:
+    paths-ignore: ['**.md', 'LICENSE']
+  workflow_dispatch:
+    inputs:
+      native_sdk_ref:
+        description: Branch, tag or commit of kirora-android and kirora-ios to build against
+        default: main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The native Kirora SDKs aren't published yet: each native job builds them from their repos.
+  NATIVE_SDK_REF: ${{ inputs.native_sdk_ref || 'main' }}
+
+jobs:
+  dart:
+    name: Dart (Flutter ${{ matrix.flutter || 'stable' }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The oldest Flutter the package allows, and the latest stable (empty).
+        flutter: ['3.44.4', '']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ matrix.flutter }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze --no-fatal-infos
+      - run: flutter test
+
+  android:
+    name: Android (example app, AGP 8 host)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: kiroratech/kirora-android
+          ref: ${{ env.NATIVE_SDK_REF }}
+          path: kirora-android
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Publish the Kirora Android SDK to Maven Local
+        working-directory: kirora-android
+        run: ./gradlew :kirora-sdk:publishToMavenLocal :kirora-sdk-push:publishToMavenLocal
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Build the example app (compiles the plugin)
+        working-directory: example
+        run: flutter build apk --debug --target-platform android-arm64
+      - name: Plugin unit tests (Robolectric)
+        working-directory: example/android
+        run: ./gradlew :kirora_flutter:testDebugUnitTest
+      # The oldest supported host: a new Flutter 3.44 app moved down to AGP 8.9.3 / Kotlin 2.1.0,
+      # where the plugin applies the Kotlin plugin itself.
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.4
+          channel: stable
+          cache: true
+      - name: Create an AGP 8 host app on Flutter 3.44
+        working-directory: ${{ runner.temp }}
+        run: |
+          flutter create --platforms android --project-name host host
+          cd host
+          flutter pub add "kirora_flutter:{\"path\":\"$GITHUB_WORKSPACE\"}"
+          cd android
+          perl -pi -e 's/(id\("com\.android\.application"\) version )"[^"]+"/$1"8.9.3"/; s/(id\("org\.jetbrains\.kotlin\.android"\) version )"[^"]+"/$1"2.1.0"/' settings.gradle.kts
+          perl -pi -e 's/gradle-[\d.]+-(all|bin)\.zip/gradle-8.11.1-$1.zip/' gradle/wrapper/gradle-wrapper.properties
+          perl -0pi -e 's/mavenCentral\(\)/mavenCentral()\n        mavenLocal()/' build.gradle.kts
+      - name: Build the AGP 8 host app (compiles the plugin)
+        working-directory: ${{ runner.temp }}/host
+        run: flutter build apk --debug --target-platform android-arm64
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: android-reports
+          path: |
+            example/build/**/reports/
+            example/build/**/test-results/
+
+  ios:
+    name: iOS (example app, ${{ matrix.integration }})
+    # macOS minutes cost ten times Linux ones: build only once the Dart checks pass.
+    needs: dart
+    runs-on: macos-15
+    env:
+      KIRORA_IOS_PATH: ${{ github.workspace }}/kirora-ios
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - integration: cocoapods
+            spm: --no-enable-swift-package-manager
+          - integration: swiftpm
+            spm: --enable-swift-package-manager
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: kiroratech/kirora-ios
+          ref: ${{ env.NATIVE_SDK_REF }}
+          path: kirora-ios
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      # Both integrations build Kirora from the checkout (KIRORA_IOS_PATH): it has no release yet.
+      - run: flutter config ${{ matrix.spm }}
+      - name: Build the example app for the simulator (compiles the plugin)
+        working-directory: example
+        run: flutter build ios --simulator --debug

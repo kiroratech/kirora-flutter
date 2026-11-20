@@ -32,14 +32,28 @@ enum PushStatus {
 /// A Kirora push as the app sees it: the sender's own data, plus Kirora's `kirora_*` keys.
 typedef NotificationData = Map<String, String>;
 
+/// Why the user's token failed outside a method call (see [KiroraOptions.onAuthenticationFailed]).
+enum AuthenticationFailure {
+  /// `fetchUserToken` threw, gave no token, or ran out of time.
+  fetchFailed('fetch_failed'),
+
+  /// Kirora answered 401 and there was no fresh token to try, or it refused the fresh one.
+  refused('refused');
+
+  const AuthenticationFailure(this.wireName);
+
+  /// The name the native SDKs and the spec use.
+  final String wireName;
+}
+
 /// Turns push on. Kirora chooses the push app unless the workspace has several and [pushAppId] names one.
 class KiroraPushOptions {
   const KiroraPushOptions({
     this.pushAppId,
     this.smallIcon,
     this.accentColor,
-    this.channelId,
-    this.channelName,
+    this.defaultChannelId,
+    this.defaultChannelName,
     this.onForegroundNotification,
   });
 
@@ -54,10 +68,10 @@ class KiroraPushOptions {
 
   /// Android: id and name of the default channel the SDK creates at start (`kirora_default`,
   /// `Notifications`).
-  final String? channelId;
-  final String? channelName;
+  final String? defaultChannelId;
+  final String? defaultChannelName;
 
-  /// Android: decides whether a push is shown while the app is open. It is shown by default;
+  /// Android and iOS: decides whether a push is shown while the app is open. It is shown by default;
   /// return `false` to hold one back. Must answer within about 1.5 s, or the push is shown.
   final FutureOr<bool> Function(NotificationData data)? onForegroundNotification;
 }
@@ -90,6 +104,7 @@ class KiroraOptions {
     this.logLevel = LogLevel.error,
     this.apiUrl = 'https://api.kirora.io',
     this.beforeSend,
+    this.onAuthenticationFailed,
     this.handleDeepLink,
   });
 
@@ -122,6 +137,14 @@ class KiroraOptions {
   /// The native SDK's automatic events (`Session Started`, the `Application …` events) carry no
   /// app-supplied values and do not pass through it.
   final BeforeSend? beforeSend;
+
+  /// Called when the user's token fails outside a method call, where nothing else would tell the
+  /// app: a background refresh whose `fetchUserToken` failed, or a fresh token Kirora refused.
+  /// Called once per failure, and again only after a request with that user's token succeeds or
+  /// `identify()` is called. Never for a failure a method call throws (`identify()`,
+  /// `setPushConsent()`), a cancelled call, or while the user signs out. The app can sign the user
+  /// out or ask them to sign in again.
+  final void Function(AuthenticationFailure reason)? onAuthenticationFailed;
 
   /// Called with a push's link when it is tapped; answer `true` when the app opened it itself.
   /// Otherwise the SDK opens it, as it also does without an answer within 1.5 seconds.

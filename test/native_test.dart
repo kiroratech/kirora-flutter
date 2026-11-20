@@ -30,16 +30,24 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(channel, null);
   });
 
-  Kirora make({Future<String?> Function()? fetchUserToken, KiroraPushOptions? push}) => Kirora(
+  Kirora make({
+    Future<String?> Function()? fetchUserToken,
+    KiroraPushOptions? push,
+    void Function(AuthenticationFailure)? onAuthenticationFailed,
+  }) =>
+      Kirora(
         KiroraOptions(
           clientKey: ' kirora_pk_n ',
           fetchUserToken: fetchUserToken,
           push: push,
+          onAuthenticationFailed: onAuthenticationFailed,
           trackAppLifecycle: true,
           logLevel: LogLevel.none,
         ),
         channel: channel,
       );
+
+  Object? generationOf(MethodCall configure) => (configure.arguments as Map)['generation'];
 
   test('the native SDK is configured with the options, key trimmed', () async {
     answer = (c) => c.method == 'getState' ? <String, Object?>{'isInitialized': true, 'queuedEventCount': 2} : null;
@@ -59,10 +67,12 @@ void main() {
       'hasTokenProvider': true,
       'smallIcon': null,
       'accentColor': null,
-      'channelId': null,
-      'channelName': null,
+      'defaultChannelId': null,
+      'defaultChannelName': null,
       'hasForegroundHandler': false,
       'hasDeepLinkHandler': false,
+      'hasAuthenticationFailedHandler': false,
+      'generation': isA<int>(),
       'sdkVersion': sdkVersion,
     });
     expect(state.isInitialized, isTrue);
@@ -149,16 +159,16 @@ void main() {
       push: KiroraPushOptions(
         smallIcon: 'ic_notification',
         accentColor: '#FF5500',
-        channelId: 'promos',
-        channelName: 'Promotions',
+        defaultChannelId: 'promos',
+        defaultChannelName: 'Promotions',
         onForegroundNotification: (d) => d['plan'] != 'muted',
       ),
     );
     await k.getState();
     expect(calls.first.arguments, containsPair('smallIcon', 'ic_notification'));
     expect(calls.first.arguments, containsPair('accentColor', '#FF5500'));
-    expect(calls.first.arguments, containsPair('channelId', 'promos'));
-    expect(calls.first.arguments, containsPair('channelName', 'Promotions'));
+    expect(calls.first.arguments, containsPair('defaultChannelId', 'promos'));
+    expect(calls.first.arguments, containsPair('defaultChannelName', 'Promotions'));
     expect(calls.first.arguments, containsPair('hasForegroundHandler', true));
   });
 
@@ -223,16 +233,6 @@ void main() {
     expect(const StandardMethodCodec().decodeEnvelope((await done.future)!), 'b');
   });
 
-  Future<Object?> askDart(String method, [Object? arguments]) async {
-    final reply = Completer<ByteData?>();
-    await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.handlePlatformMessage(
-      channel.name,
-      const StandardMethodCodec().encodeMethodCall(MethodCall(method, arguments)),
-      reply.complete,
-    );
-    return const StandardMethodCodec().decodeEnvelope((await reply.future)!);
-  }
-
   test('a replaced instance sends nothing, and its destroy() leaves the newer client alone', () async {
     final old = make(fetchUserToken: () async => 'a');
     final current = make(fetchUserToken: () async => 'b');
@@ -247,7 +247,7 @@ void main() {
     expect(Kirora.active, same(current));
 
     // The newer instance still answers the native SDK and still sends.
-    expect(await askDart('fetchUserToken'), 'b');
+    expect(await fromNative('fetchUserToken'), 'b');
     current.track('Now');
     await pumpEventQueue();
     expect(calls.map((c) => c.method), ['track']);
@@ -364,9 +364,9 @@ void main() {
 
   test('no token from fetchUserToken is a failed fetch, on both platforms', () async {
     make(fetchUserToken: () async => '');
-    await expectLater(askDart('fetchUserToken'), throwsA(isA<PlatformException>()));
+    await expectLater(fromNative('fetchUserToken'), throwsA(isA<PlatformException>()));
     make(fetchUserToken: () async => null);
-    await expectLater(askDart('fetchUserToken'), throwsA(isA<PlatformException>()));
+    await expectLater(fromNative('fetchUserToken'), throwsA(isA<PlatformException>()));
   });
 
   test('a toJson() that throws drops that event and never reaches the app', () async {
@@ -531,6 +531,36 @@ void main() {
     got = null;
     expect(await ask('https://mine.example/late', DateTime.now().millisecondsSinceEpoch - 1), isFalse);
     expect(got, isNull);
+  });
+
+  test('a background token failure reaches onAuthenticationFailed with its reason', () async {
+    final reasons = <AuthenticationFailure>[];
+    make(onAuthenticationFailed: (r) {
+      reasons.add(r);
+      if (r == AuthenticationFailure.refused) throw StateError('app bug'); // never reaches the SDK
+    });
+    expect(calls.first.arguments, containsPair('hasAuthenticationFailedHandler', true));
+    final generation = generationOf(calls.first);
+    await fromNative('authenticationFailed', {'reason': 'fetch_failed', 'generation': generation});
+    await fromNative('authenticationFailed', {'reason': 'refused', 'generation': generation});
+    await fromNative('authenticationFailed', {'reason': 'something_new', 'generation': generation}); // a reason this version doesn't know is ignored
+    expect(reasons, [AuthenticationFailure.fetchFailed, AuthenticationFailure.refused]);
+  });
+
+  test('a late authentication failure from a replaced client never reaches the new one', () async {
+    final first = <AuthenticationFailure>[];
+    final second = <AuthenticationFailure>[];
+    make(onAuthenticationFailed: first.add);
+    final oldGeneration = generationOf(calls.last);
+    make(onAuthenticationFailed: second.add);
+    final newGeneration = generationOf(calls.last);
+    expect(newGeneration, isNot(oldGeneration));
+
+    await fromNative('authenticationFailed', {'reason': 'refused', 'generation': oldGeneration}); // the replaced client's background refresh
+    await fromNative('authenticationFailed', {'reason': 'refused', 'generation': null}); // untagged
+    expect(second, isEmpty);
+    await fromNative('authenticationFailed', {'reason': 'fetch_failed', 'generation': newGeneration});
+    expect(second, [AuthenticationFailure.fetchFailed]);
   });
 
   test('with no native SDK (web, desktop, an app\'s own unit tests) every call does nothing', () async {

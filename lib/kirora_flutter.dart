@@ -5,6 +5,7 @@ export 'src/errors.dart' show KiroraApiError, KiroraError, UserTokenError;
 export 'src/kirora.dart' show Kirora;
 export 'src/options.dart'
     show
+        AuthenticationFailure,
         BeforeSend,
         BeforeSendEvent,
         KiroraOptions,

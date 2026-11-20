@@ -9,6 +9,7 @@ import android.os.Handler
 import android.os.Looper
 import com.kirora.androidsdk.Kirora
 import com.kirora.androidsdk.KiroraInternalApi
+import com.kirora.androidsdk.model.AuthFailureReason
 import com.kirora.androidsdk.model.KiroraOptions
 import com.kirora.androidsdk.model.KiroraPushOptions
 import com.kirora.androidsdk.model.LogLevel
@@ -229,11 +230,27 @@ class KiroraFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                     null
                 }
             Kirora.setWrapperCallbacks(handleDeepLink = deepLink, onForegroundNotification = foreground)
+            // A token that fails outside a call (a background refresh): Dart hears the spec's reason,
+            // tagged with this setup's generation so a newer Dart instance ignores it.
+            val generation = call.argument<Number>("generation")?.toLong()
+            val authFailed: ((AuthFailureReason) -> Unit)? =
+                if (call.argument<Boolean>("hasAuthenticationFailedHandler") == true) {
+                    { reason: AuthFailureReason ->
+                        val wire = when (reason) {
+                            AuthFailureReason.FETCH_FAILED -> "fetch_failed"
+                            AuthFailureReason.REFUSED -> "refused"
+                        }
+                        invokeDart("authenticationFailed", mapOf("reason" to wire, "generation" to generation))
+                    }
+                } else {
+                    null
+                }
             kirora = Kirora(
                 appContext,
                 KiroraOptions(
                     clientKey = call.argument<String>("clientKey") ?: "",
                     fetchUserToken = provider,
+                    onAuthenticationFailed = authFailed,
                     push = push,
                     requireTrackingConsent = call.argument<Boolean>("requireTrackingConsent") == true,
                     trackSessions = call.argument<Boolean>("trackSessions") != false,
@@ -272,8 +289,8 @@ class KiroraFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
             pushAppId = call.argument<String>("pushAppId"),
             smallIconResId = icon,
             accentColor = color,
-            defaultChannelId = call.argument<String>("channelId") ?: "kirora_default",
-            defaultChannelName = call.argument<String>("channelName") ?: "Notifications"
+            defaultChannelId = call.argument<String>("defaultChannelId") ?: "kirora_default",
+            defaultChannelName = call.argument<String>("defaultChannelName") ?: "Notifications"
         )
     }
 
@@ -299,7 +316,7 @@ class KiroraFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
         }
 
     /** Tells Dart about a tap or a push (events can come from any thread). */
-    private fun invokeDart(method: String, data: Map<String, String>) {
+    private fun invokeDart(method: String, data: Map<String, Any?>) {
         mainHandler.post {
             try {
                 channel.invokeMethod(method, data)

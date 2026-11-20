@@ -99,8 +99,8 @@ class Kirora {
   Future<KiroraState> getState() => _backend.getState();
 
   /// A tap on a Kirora notification or one of its buttons (the data is the push's own, plus Kirora's
-  /// `kirora_*` keys). The native SDK has reported it to Kirora and opened its link first. A tap
-  /// that launched the app is delivered when you first listen.
+  /// `kirora_*` keys). The native SDK has reported it to Kirora (waiting 1.5 seconds at most) and
+  /// opened its link first. A tap that launched the app is delivered when you first listen.
   Stream<NotificationData> get onNotificationClicked => _backend.onNotificationClicked;
 
   /// A Kirora push arriving, in any app state it is drawn in. Android only.
