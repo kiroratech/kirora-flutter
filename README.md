@@ -446,8 +446,9 @@ flutter build apk --debug
 The Android example builds without Firebase configuration; live push needs your own
 Firebase project and device. The iOS example builds for the simulator with
 `KIRORA_IOS_PATH=/path/to/kirora-ios flutter build ios --simulator` with Swift Package
-Manager, or with CocoaPods after adding the `pod 'Kirora'` line above to `example/ios/Podfile`; push on iOS needs your own signing, capabilities and a device. CI builds
-both platforms on every code change.
+Manager. With CocoaPods, Flutter creates `example/ios/Podfile` on the first build: add the
+`pod 'Kirora'` line above to it. Push on iOS needs your own signing, capabilities and a
+device. CI builds both platforms on every code change.
 
 Run the suite with `flutter test`; it covers the channel contract against a mock
 messenger, not a native engine. The Android bridge has Robolectric tests:
