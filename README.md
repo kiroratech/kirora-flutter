@@ -308,7 +308,7 @@ push: KiroraPushOptions(
 
 The small icon is an app drawable/mipmap resource name. Android channel settings control
 sound/importance. The native push library includes a messaging service. If your app
-already owns one, follow the [native Android forwarding guide](../kirora-android/README.md)
+already owns one, follow the [native Android forwarding guide](https://github.com/kiroratech/kirora-android#readme)
 and inspect the merged manifest. `kirora.onNewPushToken(token)` forwards a token received
 through another messaging integration; it does not forward message payloads. Avoid
 multiple rendering/reporting paths for the same push.
@@ -323,8 +323,9 @@ also needs Firebase configured in your iOS host.
 
 By default, no extra Dart APNs forwarding is needed. If you disable delegate proxying
 with `KiroraAppDelegateProxyEnabled = NO`, forward callbacks as described in the
-[native iOS guide](../kirora-ios/README.md). Validate coexistence with other notification
-delegates/messaging libraries in your app.
+[native iOS guide](https://github.com/kiroratech/kirora-ios#readme). Kirora pushes show in the
+foreground even beside other notification libraries (`firebase_messaging`,
+`flutter_local_notifications`): only `onForegroundNotification` can hold one back.
 
 Delivered reporting and images require a Notification Service Extension target with
 `KiroraNotificationService`. The main-app plugin pod does not create an extension for
