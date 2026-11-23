@@ -4,7 +4,6 @@ version: 0.1.0
 homepage: https://www.kirora.io
 repository: https://github.com/kiroratech/kirora-flutter
 issue_tracker: https://github.com/kiroratech/kirora-flutter/issues
-publish_to: none
 
 environment:
   sdk: ^3.12.0

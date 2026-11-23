@@ -17,8 +17,6 @@ server signs (the contact's `externalId`). The events you track feed the rest of
 This version tracks signed-in users only: events tracked before sign-in wait on the
 device and go as the next user to sign in. Nothing is sent anonymously.
 
-**Preview: 0.1.0, not yet published to pub.dev.**
-
 ## Requirements and installation
 
 | Component | Requirement |
@@ -28,13 +26,10 @@ device and go as the next user to sign in. Nothing is sent anonymously.
 | iOS | iOS 13+, Swift 5.9. Swift Package Manager or CocoaPods. |
 | Web, desktop | Not supported: every call is a safe no-op. |
 
-Until it is published, depend on a local checkout, then run `flutter pub get` and rebuild
-the app (hot reload can't add a native plugin):
+Add the package, then rebuild the app (hot reload can't add a native plugin):
 
-```yaml
-dependencies:
-  kirora_flutter:
-    path: /absolute/path/to/kirora-flutter
+```sh
+flutter pub add kirora_flutter
 ```
 
 ### Native SDKs
@@ -472,5 +467,4 @@ push and several engines in one app are not covered by automated tests.
 
 ## License
 
-MIT: see [LICENSE](LICENSE). `publish_to: none` keeps the package off pub.dev until it is
-released.
+MIT: see [LICENSE](LICENSE).
