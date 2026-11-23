@@ -17,8 +17,7 @@ CocoaPods. A new kirora-ios release: `tool/sync_kirora_ios.sh <tag>` and the sam
 `ios/kirora_flutter/Package.swift`.
 
 The Android example builds without Firebase; live push needs your own Firebase project and
-a device. CI builds both platforms against the released native SDKs on every change. Real-device
-push and several engines in one app are not covered by automated tests.
+a device. CI builds both platforms against the released native SDKs on every change.
 
 ## Release
 

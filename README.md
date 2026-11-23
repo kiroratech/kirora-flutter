@@ -36,7 +36,7 @@ sign-in wait on the device and are sent as the next user you identify.
 
 | Component | Requirement |
 | --- | --- |
-| Flutter | 3.44 or later (Dart 3.12 or later). Tested with Flutter 3.44.4 and the latest stable. |
+| Flutter | 3.44 or later (Dart 3.12 or later). |
 | Android | API 24+, compileSdk 36, Java 17. AGP 8.9.3 / Kotlin 2.1 or later, or AGP 9. |
 | iOS | iOS 13+, Swift 5.9. Swift Package Manager or CocoaPods. |
 | Web, desktop | Not supported: every call is a safe no-op. |
