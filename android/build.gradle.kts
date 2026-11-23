@@ -69,9 +69,9 @@ dependencies {
     // `api` so a host's own FirebaseMessagingService can forward to KiroraPush. An app without push
     // sets `kiroraPush=false` in its gradle.properties: no Firebase, no notification permission.
     // The core SDK runs without it, and the push calls answer `unsupported`.
-    api("com.kirora:android-sdk:$kiroraSdkVersion")
+    api("io.kirora:android-sdk:$kiroraSdkVersion")
     if ((findProperty("kiroraPush") as String?)?.toBoolean() != false) {
-        api("com.kirora:android-sdk-push:$kiroraSdkVersion")
+        api("io.kirora:android-sdk-push:$kiroraSdkVersion")
     }
 
     testImplementation("junit:junit:4.13.2")

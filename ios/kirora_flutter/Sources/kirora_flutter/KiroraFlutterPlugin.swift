@@ -1,6 +1,10 @@
 @preconcurrency import Flutter
 import UIKit
+// Swift Package Manager links the Kirora package. CocoaPods builds the bundled SDK into this
+// module (KIRORA_BUNDLED, set by the podspec), where its Wrapper SPI is visible without an import.
+#if !KIRORA_BUNDLED
 @_spi(Wrapper) import Kirora
+#endif
 
 /// The iOS side of `io.kirora.flutter/sdk`: forwards Dart's calls to the Kirora iOS SDK and the
 /// SDK's questions (user tokens, deep links, foreground display) and taps back to Dart. The SDK

@@ -37,31 +37,19 @@ dependencies:
     path: /absolute/path/to/kirora-flutter
 ```
 
-### Native SDKs until they are published
+### Native SDKs
 
-**Android** includes `com.kirora:android-sdk` and `android-sdk-push` (with Firebase
-Messaging 26; beside your own `firebase_messaging`, Gradle uses the higher version). An app
-that doesn't use push can leave it out, with no Firebase and no notification permission:
-add `kiroraPush=false` to `android/gradle.properties`. The push calls then answer
-`unsupported`. The Gradle property `kiroraAndroidSdkVersion` overrides the default `0.1.0`
-(the plugin is built for that exact version). To use a local
-checkout, run `./gradlew :kirora-sdk:publishToMavenLocal :kirora-sdk-push:publishToMavenLocal`
-there, and add `mavenLocal()` to your app's `android/build.gradle(.kts)`:
+**Android** includes `io.kirora:android-sdk` and `android-sdk-push` 0.1.0 from Maven
+Central (with Firebase Messaging 26; beside your own `firebase_messaging`, Gradle uses the
+higher version). An app that doesn't use push can leave it out, with no Firebase and no
+notification permission: add `kiroraPush=false` to `android/gradle.properties`. The push
+calls then answer `unsupported`.
 
-```kotlin
-allprojects {
-    repositories {
-        mavenLocal { content { includeGroup("com.kirora") } }
-    }
-}
-```
+**iOS, Swift Package Manager:** resolves `kirora-ios` 0.1.0 from GitHub; nothing to add.
 
-**iOS, Swift Package Manager:** set `KIRORA_IOS_PATH` to a local `kirora-ios` checkout
-(the folder must have that name) when running `flutter build`/`flutter run`. Run
-`flutter clean` if Xcode keeps an old package manifest.
-
-**iOS, CocoaPods:** add `pod 'Kirora', :path => '/absolute/path/to/kirora-ios'` to the
-`Runner` target in `ios/Podfile`, then run `pod install`.
+**iOS, CocoaPods:** the plugin bundles `kirora-ios` 0.1.0 and builds it itself; nothing to
+add, and nothing comes from CocoaPods trunk. Don't also add the `Kirora` pod: the SDK would be
+linked twice.
 
 ## Create one client
 
@@ -313,8 +301,8 @@ Delivery reports, images and buttons need a Notification Service Extension:
      ```ruby
      target 'NotificationService' do
        use_frameworks!
-       pod 'KiroraNotificationService', '0.1.0' # the same version as Kirora
-       # Until it is published: pod 'KiroraNotificationService', :path => '/absolute/path/to/kirora-ios'
+       # The kirora-ios version this plugin bundles
+       pod 'KiroraNotificationService', :git => 'https://github.com/kiroratech/kirora-ios.git', :tag => '0.1.0'
      end
      ```
    - Swift Package Manager: add the `kirora-ios` package to the Xcode project and its
@@ -468,15 +456,21 @@ has no native queue, authentication or push.
 flutter pub get && flutter analyze && flutter test
 (cd example/android && ./gradlew :kirora_flutter:testDebugUnitTest)   # Android bridge
 (cd example && flutter build apk --debug)
-(cd example && KIRORA_IOS_PATH=/path/to/kirora-ios flutter build ios --simulator)
+(cd example && flutter build ios --simulator)
 ```
 
+To build against unreleased native code: on Android, set `KIRORA_ANDROID_LOCAL=1` after running
+`./gradlew publishToMavenLocal` in `kirora-android`. On iOS, set `KIRORA_IOS_PATH` to a
+`kirora-ios` checkout for Swift Package Manager (the folder must have that name; `flutter clean`
+if Xcode keeps the old package), or run `tool/sync_kirora_ios.sh /path/to/kirora-ios` for
+CocoaPods. A new kirora-ios release: `tool/sync_kirora_ios.sh <tag>` and the same exact version in
+`ios/kirora_flutter/Package.swift`.
+
 The Android example builds without Firebase; live push needs your own Firebase project and
-a device. With CocoaPods, Flutter creates `example/ios/Podfile` on the first build: add the
-`pod 'Kirora'` line above to it. CI builds both platforms on every change. Real-device push
-and several engines in one app are not covered by automated tests.
+a device. CI builds both platforms against the released native SDKs on every change. Real-device
+push and several engines in one app are not covered by automated tests.
 
 ## License
 
-MIT: see [LICENSE](LICENSE). `publish_to: none` keeps the package off pub.dev until the
-native SDKs are published.
+MIT: see [LICENSE](LICENSE). `publish_to: none` keeps the package off pub.dev until it is
+released.

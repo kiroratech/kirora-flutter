@@ -11,19 +11,19 @@ on:
   workflow_dispatch:
     inputs:
       native_sdk_ref:
-        description: Branch, tag or commit of kirora-android and kirora-ios to build against
+        description: Branch, tag or commit of kirora-android and kirora-ios to build against (empty uses the released SDKs)
         default: main
 
 permissions:
   contents: read
 
+# Pushes and pull requests build against the released native SDKs, as apps do: Maven Central, and
+# kirora-ios 0.1.0 (its tag for Swift Package Manager, the plugin's bundled copy for CocoaPods).
+# A manual run that names native_sdk_ref builds both from that ref instead.
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
-
-env:
-  # The native Kirora SDKs aren't published yet: each native job builds them from their repos.
-  NATIVE_SDK_REF: ${{ inputs.native_sdk_ref || 'main' }}
 
 jobs:
   dart:
@@ -51,9 +51,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
+        if: inputs.native_sdk_ref
         with:
           repository: kiroratech/kirora-android
-          ref: ${{ env.NATIVE_SDK_REF }}
+          ref: ${{ inputs.native_sdk_ref }}
           path: kirora-android
       - uses: actions/setup-java@v4
         with:
@@ -61,8 +62,11 @@ jobs:
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
       - name: Publish the Kirora Android SDK to Maven Local
+        if: inputs.native_sdk_ref
         working-directory: kirora-android
-        run: ./gradlew :kirora-sdk:publishToMavenLocal :kirora-sdk-push:publishToMavenLocal
+        run: |
+          ./gradlew :kirora-sdk:publishToMavenLocal :kirora-sdk-push:publishToMavenLocal
+          echo "KIRORA_ANDROID_LOCAL=1" >> "$GITHUB_ENV"
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -89,7 +93,9 @@ jobs:
           cd android
           perl -pi -e 's/(id\("com\.android\.application"\) version )"[^"]+"/$1"8.9.3"/; s/(id\("org\.jetbrains\.kotlin\.android"\) version )"[^"]+"/$1"2.1.0"/' settings.gradle.kts
           perl -pi -e 's/gradle-[\d.]+-(all|bin)\.zip/gradle-8.11.1-$1.zip/' gradle/wrapper/gradle-wrapper.properties
-          perl -0pi -e 's/mavenCentral\(\)/mavenCentral()\n        mavenLocal()/' build.gradle.kts
+          if [ -n "$KIRORA_ANDROID_LOCAL" ]; then
+            perl -0pi -e 's/google\(\)/mavenLocal { content { includeGroup("io.kirora") } }\n        google()/' build.gradle.kts
+          fi
       - name: Build the AGP 8 host app (compiles the plugin)
         working-directory: ${{ runner.temp }}/host
         run: flutter build apk --debug --target-platform android-arm64
@@ -106,8 +112,6 @@ jobs:
     # macOS minutes cost ten times Linux ones: build only once the Dart checks pass.
     needs: dart
     runs-on: macos-15
-    env:
-      KIRORA_IOS_PATH: ${{ github.workspace }}/kirora-ios
     strategy:
       fail-fast: false
       matrix:
@@ -119,23 +123,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
+        if: inputs.native_sdk_ref
         with:
           repository: kiroratech/kirora-ios
-          ref: ${{ env.NATIVE_SDK_REF }}
+          ref: ${{ inputs.native_sdk_ref }}
           path: kirora-ios
+      # Both integrations then build Kirora from the checkout.
+      - if: inputs.native_sdk_ref
+        run: echo "KIRORA_IOS_PATH=$GITHUB_WORKSPACE/kirora-ios" >> "$GITHUB_ENV"
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
-      # Both integrations build Kirora from the checkout (KIRORA_IOS_PATH): it has no release yet.
       - run: flutter config ${{ matrix.spm }}
       # The example has no Podfile, as Flutter wants when every plugin is a Swift package. With
-      # CocoaPods, start from Flutter's own and point it at the checkout (Kirora isn't on trunk yet).
-      - name: Create the example's Podfile, pointing at the kirora-ios checkout
+      # CocoaPods, start from Flutter's own. The plugin builds its bundled kirora-ios, or the
+      # checkout's sources in a run from source.
+      - name: Create the example's Podfile
         if: matrix.integration == 'cocoapods'
         run: |
           cp "$FLUTTER_ROOT/packages/flutter_tools/templates/cocoapods/Podfile-ios" example/ios/Podfile
-          perl -pi -e 's/^(\s*)use_frameworks!\n/$&$1pod "Kirora", :path => ENV["KIRORA_IOS_PATH"]\n/' example/ios/Podfile
+          if [ -n "$KIRORA_IOS_PATH" ]; then tool/sync_kirora_ios.sh "$KIRORA_IOS_PATH"; fi
       - name: Build the example app for the simulator (compiles the plugin)
         working-directory: example
         run: flutter build ios --simulator --debug

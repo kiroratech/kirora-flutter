@@ -1,7 +1,7 @@
 ## 0.1.0 (unreleased)
 
 First release. A Flutter wrapper for the native Kirora SDKs: on Android it calls
-`com.kirora:android-sdk` and `android-sdk-push`, on iOS the `Kirora` pod (exactly `0.1.0`, iOS 13+), and
+`io.kirora:android-sdk` and `android-sdk-push`, on iOS `kirora-ios` (exactly `0.1.0`, iOS 13+), and
 they do the work (queue, visits, consent, push, retries, sign-out).
 
 - `identify()`, `logout()`, `track()`, `trackScreenView()`, `setTrackingConsent()`, `flush()`,
@@ -43,5 +43,7 @@ they do the work (queue, visits, consent, push, retries, sign-out).
 - Requires Flutter 3.44 or later (Dart 3.12). Android builds with AGP 8.9.3 / Kotlin 2.1.0 and later.
 - iOS supports Swift Package Manager (`ios/kirora_flutter/Package.swift`, depending on Flutter's
   generated `FlutterFramework` package) as well as CocoaPods.
-- Until the native SDKs are published: Android builds against `mavenLocal()`, and the iOS app
-  points at a local kirora-ios (a local Swift package, or the `Kirora` pod by path).
+- Android gets `io.kirora:android-sdk` and `android-sdk-push` 0.1.0 from Maven Central. On iOS,
+  Swift Package Manager gets `kirora-ios` 0.1.0 from GitHub; with CocoaPods the plugin bundles that
+  version's sources (`ios/Kirora`, refreshed by `tool/sync_kirora_ios.sh`), as CocoaPods trunk is
+  read-only from December 2026.

@@ -1,14 +1,12 @@
 allprojects {
     repositories {
+        // KIRORA_ANDROID_LOCAL=1: build against a local publish of the Android SDK
+        // (`./gradlew publishToMavenLocal` there), ahead of the released one.
+        if (System.getenv("KIRORA_ANDROID_LOCAL") != null) {
+            mavenLocal { content { includeGroup("io.kirora") } }
+        }
         google()
         mavenCentral()
-        // Until the Kirora Android SDK is on a public repository: point KIRORA_ANDROID_REPOS at its
-        // build/staging-repo folders (path-separated; wins over a stale local publish) ...
-        System.getenv("KIRORA_ANDROID_REPOS")?.split(File.pathSeparator)?.filter { it.isNotBlank() }?.forEach {
-            maven { url = uri(it) }
-        }
-        // ... or publish it locally (`./gradlew publishToMavenLocal` in the Android SDK project).
-        mavenLocal()
     }
 }
 
