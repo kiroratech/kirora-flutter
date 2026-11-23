@@ -21,7 +21,7 @@ device and go as the next user to sign in. Nothing is sent anonymously.
 
 | Component | Requirement |
 | --- | --- |
-| Flutter | 3.44 or later (Dart 3.12 or later). Tested with Flutter 3.44.4 and 3.50. |
+| Flutter | 3.44 or later (Dart 3.12 or later). Tested with Flutter 3.44.4 and the latest stable. |
 | Android | API 24+, compileSdk 36, Java 17. AGP 8.9.3 / Kotlin 2.1 or later, or AGP 9. |
 | iOS | iOS 13+, Swift 5.9. Swift Package Manager or CocoaPods. |
 | Web, desktop | Not supported: every call is a safe no-op. |
@@ -69,11 +69,10 @@ The client key (`kirora_pk_…`) is public and safe to ship. **Keep the secret t
 user tokens, and your server API keys, on your server.** Creating the client never asks
 for notification permission.
 
-Create it once, outside widget `build` methods, in your main isolate only: never in a
-background isolate such as `firebase_messaging`'s `onBackgroundMessage`. There is one
-native client per app. A background engine's setup is refused while the app's UI has a
-client (its `identify()` throws and it tracks nothing). Otherwise each setup
-replaces the client:
+Create it once, outside widget `build` methods, in your main isolate. There is one native
+client per app, and each new setup replaces it, with one exception: a setup from a
+background isolate (such as `firebase_messaging`'s `onBackgroundMessage`) is refused while
+the app's UI has a client; its `identify()` throws and it tracks nothing. On a replacement:
 
 - `Kirora.active` is the latest client. Creating another stops the previous one: it then
   sends nothing but push tokens (`onNewPushToken()`, which belong to the device), and its
@@ -300,8 +299,9 @@ Delivery reports, images and buttons need a Notification Service Extension:
        pod 'KiroraNotificationService', :git => 'https://github.com/kiroratech/kirora-ios.git', :tag => '0.1.0'
      end
      ```
-   - Swift Package Manager: add the `kirora-ios` package to the Xcode project and its
-     `KiroraNotificationService` product to the extension target.
+   - Swift Package Manager: add the `kirora-ios` package
+     (`https://github.com/kiroratech/kirora-ios`, exactly 0.1.0) to the Xcode project and
+     its `KiroraNotificationService` product to the extension target.
 3. Replace the generated `NotificationService.swift` with:
    ```swift
    import KiroraNotificationService
@@ -445,26 +445,7 @@ It records calls and events, lets you set state and errors, and can simulate not
 streams. Like the real client, it skips `beforeSend` for events tracking doesn't allow. It
 has no native queue, authentication or push.
 
-## Developing this package
-
-```sh
-flutter pub get && flutter analyze && flutter test
-(cd example/android && ./gradlew :kirora_flutter:testDebugUnitTest)   # Android bridge
-(cd example && flutter build apk --debug)
-(cd example && flutter build ios --simulator)
-```
-
-To build against unreleased native code: on Android, set `KIRORA_ANDROID_LOCAL=1` after running
-`./gradlew publishToMavenLocal` in `kirora-android`. On iOS, set `KIRORA_IOS_PATH` to a
-`kirora-ios` checkout for Swift Package Manager (the folder must have that name; `flutter clean`
-if Xcode keeps the old package), or run `tool/sync_kirora_ios.sh /path/to/kirora-ios` for
-CocoaPods. A new kirora-ios release: `tool/sync_kirora_ios.sh <tag>` and the same exact version in
-`ios/kirora_flutter/Package.swift`.
-
-The Android example builds without Firebase; live push needs your own Firebase project and
-a device. CI builds both platforms against the released native SDKs on every change. Real-device
-push and several engines in one app are not covered by automated tests.
-
 ## License
 
-MIT: see [LICENSE](LICENSE).
+MIT: see [LICENSE](LICENSE). To work on the package itself, see
+[CONTRIBUTING.md](https://github.com/kiroratech/kirora-flutter/blob/main/CONTRIBUTING.md).
