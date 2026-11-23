@@ -29,6 +29,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.coroutines.resume
@@ -44,6 +45,9 @@ class KiroraFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
     private lateinit var channel: MethodChannel
     private lateinit var appContext: Context
     private var activity: Activity? = null
+
+    /** This engine has shown an activity: the app's UI, not a headless one (an FCM background handler, WorkManager). */
+    private var hasUi = false
     private var kirora: Kirora? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var clicksOn = false
@@ -98,6 +102,7 @@ class KiroraFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
         activity = binding.activity
+        hasUi = true
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
@@ -106,6 +111,7 @@ class KiroraFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
 
     override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
         activity = binding.activity
+        hasUi = true
     }
 
     override fun onDetachedFromActivity() {
@@ -157,7 +163,12 @@ class KiroraFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                     if (received) kirora.addForegroundNotificationListener(receivedListener) else kirora.removeForegroundNotificationListener(receivedListener)
                 }
             }
-            "onNewPushToken" -> fireAndForget(result) { it.onNewPushToken(call.argument<String>("token") ?: "") }
+            "onNewPushToken" -> {
+                // Kept even with no client (a refused setup): it's registered once one signs a user in.
+                val token = call.argument<String>("token")
+                if (!token.isNullOrEmpty()) answerQuietly { Kirora.handleNewPushToken(appContext, token) }
+                result.success(null)
+            }
             "requestPushPermission" -> withKirora(result) { kirora ->
                 val caller: Context = activity ?: appContext
                 result.success(kirora.requestPushPermission(caller).wireValue)
@@ -201,18 +212,26 @@ class KiroraFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
     }
 
     private fun configure(call: MethodCall, result: Result) {
+        // One native client per process. A headless engine never takes it from the app's UI: that
+        // would leave the UI with no client. Refused, its Kirora tracks nothing and identify() throws.
+        val current = owner
+        if (!hasUi && current != null && current !== this && current.hasUi && current.kirora != null) {
+            result.error("CONFIGURE_ERROR", "the app's UI already set Kirora up: set it up in the main isolate only", null)
+            return
+        }
         try {
             val provider: (suspend () -> String?)? =
                 if (call.argument<Boolean>("hasTokenProvider") == true) ({ requestToken() }) else null
             val push = if (call.argument<Boolean>("push") == true) pushOptions(call) else null
             // A second configure (hot restart) replaces the client, and Dart's listeners start over.
             endClient()
+            // One native client per process, and this setup replaces it: an older engine's calls now
+            // answer "not set up", and its listeners stop receiving taps meant for this engine.
+            owner?.takeIf { it !== this }?.endClient()
             configured = true
             owner = this
             // Before the client exists: Kirora-SDK names this wrapper.
             Kirora.setWrapperSdk("kirora-flutter", call.argument<String>("sdkVersion") ?: "0.1.0")
-            // Always called, with handlers or none: a launch tap's link waits for this call.
-            Kirora.setForegroundNotificationHandler(null)
             val deepLink: (suspend (String) -> Boolean)? =
                 if (call.argument<Boolean>("hasDeepLinkHandler") == true) {
                     { url: String ->
@@ -264,7 +283,19 @@ class KiroraFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                 )
             )
             // Whether tracking is allowed now, so Dart's beforeSend never sees an event it isn't.
-            result.success(mapOf("trackingConsent" to kirora?.trackingConsent))
+            // Read off the main thread: it may wait for the SDK's first read of its storage. Dart
+            // holds every later call until this answer, so order is kept.
+            val client = kirora
+            scope.launch {
+                // Null when unknown, and Dart then uses its default. Cancellation (the engine's
+                // teardown) is caught too: the coroutine ends here, and no Dart call is left waiting.
+                val consent = try {
+                    withContext(Dispatchers.IO) { client?.trackingConsent }
+                } catch (_: Throwable) {
+                    null
+                }
+                answerQuietly { result.success(mapOf("trackingConsent" to consent)) }
+            }
         } catch (e: Throwable) {
             // Rare: the SDK's constructor catches its own setup failures. The callbacks installed above
             // stay: the SDK asks them without a client, and Dart is alive to answer. This engine still

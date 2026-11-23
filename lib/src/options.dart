@@ -22,6 +22,9 @@ enum PushStatus {
   /// Permission granted, but the device is not registered: turned off with `setPushEnabled(false)`,
   /// signed out, or the registration failed.
   disabled,
+
+  /// Notifications are blocked: permission refused, or (Android) Kirora's notification channel
+  /// turned off in system settings. Only the system settings can undo it.
   denied,
 
   /// The platform's prompt has not been answered yet.
@@ -33,14 +36,14 @@ enum PushStatus {
 typedef NotificationData = Map<String, String>;
 
 /// Why the user's token failed outside a method call (see [KiroraOptions.onAuthenticationFailed]).
-enum AuthenticationFailure {
+enum AuthenticationFailureReason {
   /// `fetchUserToken` threw, gave no token, or ran out of time.
   fetchFailed('fetch_failed'),
 
   /// Kirora answered 401 and there was no fresh token to try, or it refused the fresh one.
   refused('refused');
 
-  const AuthenticationFailure(this.wireName);
+  const AuthenticationFailureReason(this.wireName);
 
   /// The name the native SDKs and the spec use.
   final String wireName;
@@ -144,7 +147,7 @@ class KiroraOptions {
   /// `identify()` is called. Never for a failure a method call throws (`identify()`,
   /// `setPushConsent()`), a cancelled call, or while the user signs out. The app can sign the user
   /// out or ask them to sign in again.
-  final void Function(AuthenticationFailure reason)? onAuthenticationFailed;
+  final void Function(AuthenticationFailureReason reason)? onAuthenticationFailed;
 
   /// Called with a push's link when it is tapped; answer `true` when the app opened it itself.
   /// Otherwise the SDK opens it, as it also does without an answer within 1.5 seconds.

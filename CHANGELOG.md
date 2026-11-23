@@ -1,7 +1,7 @@
 ## 0.1.0 (unreleased)
 
 First release. A Flutter wrapper for the native Kirora SDKs: on Android it calls
-`com.kirora:android-sdk` and `android-sdk-push`, on iOS the `Kirora` pod (`~> 0.1`, iOS 13+), and
+`com.kirora:android-sdk` and `android-sdk-push`, on iOS the `Kirora` pod (exactly `0.1.0`, iOS 13+), and
 they do the work (queue, visits, consent, push, retries, sign-out).
 
 - `identify()`, `logout()`, `track()`, `trackScreenView()`, `setTrackingConsent()`, `flush()`,
@@ -13,17 +13,30 @@ they do the work (queue, visits, consent, push, retries, sign-out).
 - Options: `fetchUserToken` (answered from Dart for the native SDK, 30 s for the round trip),
   `beforeSend` (redacts or drops an event the app tracks, in Dart, before it is forwarded and
   stored; never called for an event tracking doesn't allow), `handleDeepLink` and `onForegroundNotification` (asked over the channel, 1.5 s at most),
-  `onAuthenticationFailed` (a token that fails outside a call: `fetchFailed` or `refused`),
+  `onAuthenticationFailed` (a token that fails outside a call: `AuthenticationFailureReason.fetchFailed`
+  or `.refused`),
   `requireTrackingConsent`, `trackSessions`, `trackAppLifecycle`, `logLevel`, `apiUrl`, and Android's
   notification appearance.
 - `Kirora-SDK: kirora-flutter/<version>` on both platforms.
 - Errors reach the app as `KiroraApiError` (`status`, `code`, `retryAfterMs`), `UserTokenError`, or
   `KiroraError` itself (their base) for a setup or network problem. `identify()` and
-  `setPushConsent()` throw; `track()` never does, and `logout()`, `flush()`, `getState()`,
+  `setPushConsent()` throw, also on an instance that was destroyed or replaced; `track()` never does, and `logout()`, `flush()`, `getState()`,
   `requestPushPermission()`, `getPushStatus()` and `setPushEnabled()` never fail.
 - Properties are copied as JSON at `track()`, as Dart's encoder writes them (dates as ISO 8601,
   objects through `toJson()`). A cycle, NaN or infinity, a non-string map key or another object
   drops that event with a logged reason.
+- Calls reach the native SDK in the order the app makes them, and once setup has answered they
+  are sent at once: a `logout()` just before `destroy()` or a new `Kirora(...)` is not lost. After
+  a refused setup nothing is tracked.
+- One native client per app. A background engine (an FCM background handler, WorkManager, a
+  background task) can't take it from the app's UI: its setup is refused. The app's UI still
+  replaces a background engine's client.
+- Android: `kiroraPush=false` in the app's `gradle.properties` leaves push out (no Firebase,
+  no notification permission); the push calls then answer `unsupported`.
+- Native SDK versions are pinned exactly (Android `0.1.0`, iOS `0.1.0`): the plugin uses their
+  wrapper-only API.
+- One native client per app: a newer engine's setup replaces it, and an older engine's calls then
+  answer "not set up". Create Kirora in the main isolate only.
 - Where no native SDK is linked (web, desktop, an app's unit tests) every call does nothing and never
   throws, one error log says so, and `isAvailable` is `false`. `KiroraMock`
   (`package:kirora_flutter/testing.dart`) stands in for `Kirora` in an app's tests.

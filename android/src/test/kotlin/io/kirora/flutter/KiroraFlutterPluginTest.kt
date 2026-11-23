@@ -1,9 +1,11 @@
 package io.kirora.flutter
 
+import android.app.Activity
 import android.content.Context
 import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
 import io.flutter.embedding.engine.plugins.FlutterPlugin
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -125,8 +127,8 @@ class KiroraFlutterPluginTest {
         val plugin = attach()
         val result = call(plugin, "configure", options())
         val answer = ArgumentCaptor.forClass(Any::class.java)
-        verify(result).success(answer.capture())
-        assertTrue((answer.value as Map<*, *>).containsKey("trackingConsent"))
+        eventually { verify(result).success(answer.capture()) }
+        assertEquals(true, (answer.value as Map<*, *>)["trackingConsent"])
     }
 
     @Test
@@ -173,6 +175,45 @@ class KiroraFlutterPluginTest {
         val newer = configured()
         call(older, "destroy")
         assertEquals(true, stateOf(newer)["isInitialized"])
+    }
+
+    @Test
+    fun aNewerEnginesSetupEndsTheOlderEnginesClient() {
+        val older = configured()
+        val newer = configured()
+        // One native client per process: the older engine's calls say so rather than reach a destroyed one.
+        assertNotConfigured(call(older, "flush"))
+        assertEquals(true, stateOf(newer)["isInitialized"])
+    }
+
+    @Test
+    fun aHeadlessEngineNeverTakesTheClientFromTheAppsUi() {
+        val ui = attach().also { it.onAttachedToActivity(activityBinding()) }
+        call(ui, "configure", options())
+        val headless = attach()
+        verify(call(headless, "configure", options())).error(eq("CONFIGURE_ERROR"), anyString(), any())
+        assertEquals(true, stateOf(ui)["isInitialized"])
+        assertNotConfigured(call(headless, "flush"))
+    }
+
+    @Test
+    fun theAppsUiTakesTheClientFromAHeadlessEngine() {
+        val headless = configured()
+        val ui = attach().also { it.onAttachedToActivity(activityBinding()) }
+        call(ui, "configure", options())
+        assertNotConfigured(call(headless, "flush"))
+        assertEquals(true, stateOf(ui)["isInitialized"])
+    }
+
+    private fun activityBinding(): ActivityPluginBinding = mock(ActivityPluginBinding::class.java).also {
+        `when`(it.activity).thenReturn(mock(Activity::class.java))
+    }
+
+    @Test
+    fun aPushTokenWithNoClientIsKeptAndAnswered() {
+        val plugin = attach()
+        verify(call(plugin, "onNewPushToken", mapOf("token" to "fcm-token"))).success(null)
+        verify(call(plugin, "onNewPushToken", mapOf("token" to ""))).success(null)
     }
 
     @Test

@@ -65,7 +65,8 @@ class NativeBackend {
           }
         case 'handleDeepLink':
           final args = _args(call.arguments);
-          final url = Uri.tryParse(args['url'] as String? ?? '');
+          final link = args['url'];
+          final url = link is String && link.isNotEmpty ? Uri.tryParse(link) : null;
           if (handleDeepLink == null || url == null) return false;
           // The native SDK has stopped waiting and opened the link itself: the app must not also.
           final deadline = args['deadline'];
@@ -78,7 +79,7 @@ class NativeBackend {
         case 'authenticationFailed':
           final args = _args(call.arguments);
           if (authFailed == null || args['generation'] != _generation) return null;
-          final reason = AuthenticationFailure.values.where((r) => r.wireName == args['reason']).firstOrNull;
+          final reason = AuthenticationFailureReason.values.where((r) => r.wireName == args['reason']).firstOrNull;
           if (reason == null) return null;
           try {
             authFailed(reason);
@@ -128,7 +129,8 @@ class NativeBackend {
       _setupError = KiroraError('Kirora could not be set up: $message');
       _logError('native setup failed: $message');
     });
-    _configured = configured..ignore();
+    // Setup's own turn ends before any call waiting behind it resumes.
+    _configured = configured.whenComplete(() => _ahead--)..ignore();
   }
 
   /// False where there is no native Kirora SDK: every call does nothing.
@@ -152,6 +154,10 @@ class NativeBackend {
 
   final MethodChannel _channel;
   late final Future<void> _configured;
+
+  /// Setup, plus the calls still waiting for it. At 0 calls are sent at once, so one made just
+  /// before a destroy() or a replacement still reaches the native SDK first.
+  int _ahead = 1;
 
   /// Why the native SDK refused to set up, thrown by [identify] and [setPushConsent].
   KiroraError? _setupError;
@@ -203,15 +209,23 @@ class NativeBackend {
 
   Future<void> setPushConsent(bool granted) => _surfacing('setPushConsent', {'granted': granted});
 
-  /// Sends [method] once setup has answered, unless this instance has been stopped (replaced or
-  /// destroyed) by either side of that wait: the one native client then belongs to someone else.
-  /// One wait for setup, so calls reach the native SDK in the order the app made them.
-  /// With [surfaceSetupError], a setup the native SDK refused is thrown instead.
-  /// A [_Later] call is built only then, and nothing is sent when it builds null.
+  /// Sends [method] in call order, behind setup and any call still waiting for it, unless this
+  /// instance has been stopped (replaced or destroyed): the one native client is then someone
+  /// else's. With [surfaceSetupError], a refused setup is thrown instead. A [_Later] call is built
+  /// only when sent, and nothing is sent when it builds null.
   Future<T?> _send<T>(String method, [Object? arguments, bool surfaceSetupError = false]) async {
     if (_stopped) throw const _NotSent();
-    await _configured;
-    if (_stopped) throw const _NotSent();
+    if (_ahead > 0) {
+      _ahead++;
+      try {
+        await _configured;
+      } finally {
+        _ahead--;
+      }
+      if (_stopped) throw const _NotSent();
+    }
+    // No native plugin, found by setup: nothing reaches the channel.
+    if (!_isAvailable) throw MissingPluginException();
     final setupError = _setupError;
     if (surfaceSetupError && setupError != null) throw setupError;
     if (arguments is _Later) {
@@ -232,13 +246,15 @@ class NativeBackend {
   }
 
   /// A call whose failure the app hears: the native SDK's error as [UserTokenError],
-  /// [KiroraApiError] or [KiroraError] (a setup problem). Where there is no native SDK, or once this
-  /// instance is stopped, it does nothing.
+  /// [KiroraApiError] or [KiroraError] (a setup problem, or an instance that was destroyed or
+  /// replaced, whose call would otherwise look done). Where there is no native SDK it does nothing.
   Future<void> _surfacing(String method, Object? arguments) async {
     try {
       await _send<void>(method, arguments, true);
     } on _NotSent {
-      return;
+      if (!_isAvailable) return; // no native SDK: every call is a no-op
+      throw KiroraError('$method was not sent: this Kirora instance was destroyed or replaced. '
+          'Use the current one (Kirora.active).');
     } on MissingPluginException {
       return; // no native SDK: every call is a no-op, as the one error log said
     } on PlatformException catch (e) {
@@ -282,7 +298,7 @@ class NativeBackend {
   }
 
   /// False when nothing may be tracked now: stopped, no native SDK, or tracking refused.
-  bool get _tracking => !_stopped && _isAvailable && _consent != false;
+  bool get _tracking => !_stopped && _isAvailable && _setupError == null && _consent != false;
 
   /// Runs beforeSend before the event crosses to the native SDK and is stored: at once when tracking
   /// is allowed, or, while setup hasn't said whether it is, once it has (still sent in call order).
@@ -360,7 +376,11 @@ class NativeBackend {
 
   static String? _string(Object? value) => value is String ? value : null;
 
-  void onNewPushToken(String token) => _fire('onNewPushToken', {'token': token});
+  /// The device's token, not this client's: sent at once, also by a replaced instance or before
+  /// setup (the native SDK keeps it for the next client).
+  void onNewPushToken(String token) {
+    if (_isAvailable) _channel.invokeMethod<void>('onNewPushToken', {'token': token}).catchError((Object _) {});
+  }
 
   /// Destroys the native client, unless this instance was already replaced: the client then is the
   /// newer instance's, and stays. Sent at once, not after setup, so it can't arrive after a newer

@@ -6,6 +6,7 @@ import android.content.ContentProvider
 import android.content.ContentValues
 import android.database.Cursor
 import android.net.Uri
+import android.util.Log
 import com.kirora.androidsdk.Kirora
 import com.kirora.androidsdk.KiroraInternalApi
 
@@ -16,7 +17,12 @@ import com.kirora.androidsdk.KiroraInternalApi
  */
 class KiroraLaunchProvider : ContentProvider() {
     override fun onCreate(): Boolean {
-        context?.let { Kirora.installPushIntegration(it) }
+        // Runs before Application.onCreate on every process start: a failure here must never crash it.
+        try {
+            context?.let { Kirora.installPushIntegration(it) }
+        } catch (e: Throwable) {
+            Log.e("Kirora", "Push at launch could not be installed; push taps and tokens won't reach Kirora", e)
+        }
         return true
     }
 

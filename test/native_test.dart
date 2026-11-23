@@ -33,7 +33,7 @@ void main() {
   Kirora make({
     Future<String?> Function()? fetchUserToken,
     KiroraPushOptions? push,
-    void Function(AuthenticationFailure)? onAuthenticationFailed,
+    void Function(AuthenticationFailureReason)? onAuthenticationFailed,
   }) =>
       Kirora(
         KiroraOptions(
@@ -240,7 +240,8 @@ void main() {
     calls.clear();
 
     old.track('Late');
-    await old.identify('t');
+    // Its identify would otherwise look done while nobody signed in.
+    await expectLater(old.identify('t'), throwsA(isA<KiroraError>()));
     old.destroy();
     await pumpEventQueue();
     expect(calls, isEmpty);
@@ -251,6 +252,45 @@ void main() {
     current.track('Now');
     await pumpEventQueue();
     expect(calls.map((c) => c.method), ['track']);
+  });
+
+  test('once set up, calls made just before a destroy() or a replacement reach the native SDK first', () async {
+    for (final end in [(Kirora k) => k.destroy(), (Kirora k) => make()]) {
+      final k = make();
+      await pumpEventQueue();
+      calls.clear();
+      k.logout(); // not awaited, as "never fails" invites
+      k.track('Signed Out');
+      end(k);
+      await pumpEventQueue();
+      expect(calls.map((c) => c.method).take(2), ['logout', 'track']);
+    }
+  });
+
+  test('calls made while setup is answering keep their order with later ones', () async {
+    final setup = Completer<Object?>();
+    answer = (c) => c.method == 'configure' ? setup.future : null;
+    final k = make();
+    k.logout();
+    setup.complete({'trackingConsent': true});
+    k.flush(); // made before the held logout has been sent
+    await pumpEventQueue();
+    expect(calls.map((c) => c.method), ['configure', 'logout', 'flush']);
+  });
+
+  test('after a refused setup nothing is tracked, and identify says why', () async {
+    answer = (c) => c.method == 'configure' ? throw PlatformException(code: 'CONFIGURE_ERROR', message: 'bad') : null;
+    final k = make();
+    k.track('Held');
+    await pumpEventQueue();
+    k.track('Later');
+    await pumpEventQueue();
+    k.setTrackingConsent(true); // no client to track for, whatever the choice
+    k.track('After Grant');
+    k.onNewPushToken('fcm'); // the device's, kept natively without a client
+    await pumpEventQueue();
+    expect(calls.map((c) => c.method), ['configure', 'setTrackingConsent', 'onNewPushToken']);
+    await expectLater(k.identify('t'), throwsA(isA<KiroraError>()));
   });
 
   test('destroy() then a new Kirora: destroy reaches the native side before the new setup', () async {
@@ -530,26 +570,27 @@ void main() {
     // Too late: the native SDK stopped waiting and opened it, so the app's router is never called.
     got = null;
     expect(await ask('https://mine.example/late', DateTime.now().millisecondsSinceEpoch - 1), isFalse);
+    expect(await ask(''), isFalse); // no link: the app's router is never asked
     expect(got, isNull);
   });
 
   test('a background token failure reaches onAuthenticationFailed with its reason', () async {
-    final reasons = <AuthenticationFailure>[];
+    final reasons = <AuthenticationFailureReason>[];
     make(onAuthenticationFailed: (r) {
       reasons.add(r);
-      if (r == AuthenticationFailure.refused) throw StateError('app bug'); // never reaches the SDK
+      if (r == AuthenticationFailureReason.refused) throw StateError('app bug'); // never reaches the SDK
     });
     expect(calls.first.arguments, containsPair('hasAuthenticationFailedHandler', true));
     final generation = generationOf(calls.first);
     await fromNative('authenticationFailed', {'reason': 'fetch_failed', 'generation': generation});
     await fromNative('authenticationFailed', {'reason': 'refused', 'generation': generation});
     await fromNative('authenticationFailed', {'reason': 'something_new', 'generation': generation}); // a reason this version doesn't know is ignored
-    expect(reasons, [AuthenticationFailure.fetchFailed, AuthenticationFailure.refused]);
+    expect(reasons, [AuthenticationFailureReason.fetchFailed, AuthenticationFailureReason.refused]);
   });
 
   test('a late authentication failure from a replaced client never reaches the new one', () async {
-    final first = <AuthenticationFailure>[];
-    final second = <AuthenticationFailure>[];
+    final first = <AuthenticationFailureReason>[];
+    final second = <AuthenticationFailureReason>[];
     make(onAuthenticationFailed: first.add);
     final oldGeneration = generationOf(calls.last);
     make(onAuthenticationFailed: second.add);
@@ -560,7 +601,7 @@ void main() {
     await fromNative('authenticationFailed', {'reason': 'refused', 'generation': null}); // untagged
     expect(second, isEmpty);
     await fromNative('authenticationFailed', {'reason': 'fetch_failed', 'generation': newGeneration});
-    expect(second, [AuthenticationFailure.fetchFailed]);
+    expect(second, [AuthenticationFailureReason.fetchFailed]);
   });
 
   test('with no native SDK (web, desktop, an app\'s own unit tests) every call does nothing', () async {
@@ -578,6 +619,18 @@ void main() {
     expect((await k.getState()).isInitialized, isFalse);
     await k.logout();
     k.destroy();
+    expect(k.isAvailable, isFalse);
+  });
+
+  test('once setup finds no native plugin, later calls never reach the channel', () async {
+    answer = (c) => c.method == 'configure' ? throw MissingPluginException() : null;
+    final k = make();
+    await pumpEventQueue();
+    calls.clear();
+    await k.flush();
+    await k.logout();
+    expect((await k.getState()).isInitialized, isFalse);
+    expect(calls, isEmpty);
     expect(k.isAvailable, isFalse);
   });
 

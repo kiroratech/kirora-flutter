@@ -17,7 +17,7 @@ let package = Package(
         .package(name: "FlutterFramework", path: "../FlutterFramework"),
         // KIRORA_IOS_PATH (as the example's Podfile reads it) builds against a kirora-ios checkout.
         Context.environment["KIRORA_IOS_PATH"].map { .package(path: $0) }
-            ?? .package(url: "https://github.com/kiroratech/kirora-ios.git", from: "0.1.0"),
+            ?? .package(url: "https://github.com/kiroratech/kirora-ios.git", exact: "0.1.0"),
     ],
     targets: [
         .target(

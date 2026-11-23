@@ -1,22 +1,35 @@
 # Kirora Flutter SDK
 
-Connect signed-in users' app activity and push notifications to Kirora through one Dart
-API. The package wraps Kirora's native Android and iOS SDKs, which own event storage,
-sessions, consent, delivery retries and notification handling.
+Report what your signed-in users do in your Flutter app (events, screens, visits) and
+reach them with push notifications, through one Dart API. The package wraps Kirora's
+native Android and iOS SDKs, which own event storage, visits, consent, delivery retries
+and notification handling.
 
-**Preview: 0.1.0, not published to pub.dev.** This guide describes the implemented API and
-its limits; it does not certify production readiness.
+Each signed-in user is a **contact** in Kirora, matched by the `sub` of the user token your
+server signs (the contact's `externalId`). The events you track feed the rest of Kirora:
+
+- **Segments** select contacts by what they did ("completed an order twice in 90 days").
+- **Journeys** start when a contact's event arrives (`Signed Up`).
+- **Conversion goals** count an event after a send (`Order Completed`), optionally summing
+  a property such as `total` as revenue.
+- **Campaigns** and journeys send push to the devices this SDK registers.
+
+This version tracks signed-in users only: events tracked before sign-in wait on the
+device and go as the next user to sign in. Nothing is sent anonymously.
+
+**Preview: 0.1.0, not yet published to pub.dev.**
 
 ## Requirements and installation
 
 | Component | Requirement |
 | --- | --- |
-| Flutter | 3.44 or later (Dart 3.12 or later). Built and tested with Flutter 3.44.4 and 3.50.0. |
-| Android | API 24+, compileSdk 36 and Java 17. Builds with AGP 8.9.3 / Kotlin 2.1.0 and AGP 9 (built-in Kotlin, or `android.builtInKotlin=false`). |
-| iOS | iOS 13+ and Swift 5.9 in the podspec. Your Flutter/Xcode combination may require a higher deployment target. |
-| Platforms | Native plugin implementations exist for Android and iOS. Web and desktop have no Kirora native backend. |
+| Flutter | 3.44 or later (Dart 3.12 or later). Tested with Flutter 3.44.4 and 3.50. |
+| Android | API 24+, compileSdk 36, Java 17. AGP 8.9.3 / Kotlin 2.1 or later, or AGP 9. |
+| iOS | iOS 13+, Swift 5.9. Swift Package Manager or CocoaPods. |
+| Web, desktop | Not supported: every call is a safe no-op. |
 
-The package currently sets `publish_to: none`. Use a local checkout while developing:
+Until it is published, depend on a local checkout, then run `flutter pub get` and rebuild
+the app (hot reload can't add a native plugin):
 
 ```yaml
 dependencies:
@@ -24,63 +37,33 @@ dependencies:
     path: /absolute/path/to/kirora-flutter
 ```
 
-Then run `flutter pub get` in your host app and rebuild its native application.
-Hot reload cannot install a newly added native plugin.
+### Native SDKs until they are published
 
-### Resolve the native SDKs
-
-Android always includes both `com.kirora:android-sdk` and `com.kirora:android-sdk-push`,
-including Firebase Messaging and its notification permission, even when Dart push
-options are absent. The default native version is `0.1.0`; the Gradle property
-`kiroraAndroidSdkVersion` overrides it.
-
-For local development, publish the native Android libraries from their checkout:
-
-```sh
-./gradlew :kirora-sdk:publishToMavenLocal :kirora-sdk-push:publishToMavenLocal
-```
-
-Your app resolves the plugin's Kirora dependencies from its own repositories, so add
-`mavenLocal()` to your host's `android/build.gradle(.kts)` (a plugin can't add it for you;
-the example already has it):
+**Android** includes `com.kirora:android-sdk` and `android-sdk-push` (with Firebase
+Messaging 26; beside your own `firebase_messaging`, Gradle uses the higher version). An app
+that doesn't use push can leave it out, with no Firebase and no notification permission:
+add `kiroraPush=false` to `android/gradle.properties`. The push calls then answer
+`unsupported`. The Gradle property `kiroraAndroidSdkVersion` overrides the default `0.1.0`
+(the plugin is built for that exact version). To use a local
+checkout, run `./gradlew :kirora-sdk:publishToMavenLocal :kirora-sdk-push:publishToMavenLocal`
+there, and add `mavenLocal()` to your app's `android/build.gradle(.kts)`:
 
 ```kotlin
 allprojects {
     repositories {
-        // ...
         mavenLocal { content { includeGroup("com.kirora") } }
     }
 }
 ```
 
-Verify the resolved artifact after updating native sources. A reused local
-version label does not prove the latest code reached your app.
+**iOS, Swift Package Manager:** set `KIRORA_IOS_PATH` to a local `kirora-ios` checkout
+(the folder must have that name) when running `flutter build`/`flutter run`. Run
+`flutter clean` if Xcode keeps an old package manifest.
 
-iOS supports both Swift Package Manager and CocoaPods; Flutter picks whichever your app
-uses. Both depend on Kirora iOS 0.1 or later, below 1.0 (iOS 13+).
+**iOS, CocoaPods:** add `pod 'Kirora', :path => '/absolute/path/to/kirora-ios'` to the
+`Runner` target in `ios/Podfile`, then run `pod install`.
 
-**Swift Package Manager.** The plugin's `Package.swift` depends on
-`https://github.com/kiroratech/kirora-ios.git` from `0.1.0`. Until that version is tagged,
-build against a local checkout by setting `KIRORA_IOS_PATH` to its path in the environment
-of `flutter build`/`flutter run`. The checkout's folder must be named `kirora-ios`: Swift
-Package Manager names a local package after its folder. Xcode caches package manifests: if a change to it isn't picked
-up, run `flutter clean`.
-
-**CocoaPods.** Until the `Kirora` pod is available from your configured repository, point
-your host's `Runner` target to the local native checkout:
-
-```ruby
-pod 'Kirora', :path => '/absolute/path/to/kirora-ios'
-```
-
-Run `pod install` from the host's `ios` directory. The plugin podspec is discovered
-automatically.
-
-## Create one retained client
-
-Initialize Flutter bindings before creating Kirora. Retain the client outside widget
-build methods. In this example, `myServer.kiroraUserToken` is your existing authenticated
-server call returning `Future<String?>`.
+## Create one client
 
 ```dart
 import 'package:flutter/widgets.dart';
@@ -92,213 +75,214 @@ void main() {
   final kirora = Kirora(KiroraOptions(
     clientKey: 'kirora_pk_REPLACE_ME',
     requireTrackingConsent: true,
-    fetchUserToken: myServer.kiroraUserToken,
+    fetchUserToken: myServer.kiroraUserToken, // your server call, Future<String?>
   ));
 
   runApp(MyApp(kirora: kirora));
 }
 ```
 
-The client key is public. **Keep the token secret and server API keys on your server.**
-Construction does not prompt for notification permission.
+The client key (`kirora_pk_…`) is public and safe to ship. **Keep the secret that signs
+user tokens, and your server API keys, on your server.** Creating the client never asks
+for notification permission.
 
-`Kirora.active` refers to the latest client in the Dart isolate. Creating another stops
-the previous Dart backend and replaces native configuration. Identify after startup or
-reconfiguration; do not rely on identity carrying over consistently across platforms.
+Create it once, outside widget `build` methods, in your main isolate only: never in a
+background isolate such as `firebase_messaging`'s `onBackgroundMessage`. There is one
+native client per app. A background engine's setup is refused while the app's UI has a
+client (its `identify()` throws and it tracks nothing). Otherwise each setup
+replaces the client:
 
-A `setTrackingConsent` choice made just before a replacement or `destroy()` still reaches
-the native SDK first. With several Flutter engines (add-to-app), the engine that configured
-Kirora last owns the process-wide push callbacks; an older engine's teardown or `destroy()`
-ends only its own client and leaves them alone. Keep one retained client where you can.
+- `Kirora.active` is the latest client. Creating another stops the previous one: it then
+  sends nothing but push tokens (`onNewPushToken()`, which belong to the device), and its
+  `identify()` and `setPushConsent()` throw `KiroraError`. Identify again after setting up.
+- A `setTrackingConsent` choice made just before a replacement or `destroy()` still reaches
+  the native SDK first.
+- With several Flutter engines (add-to-app), the engine that set Kirora up last owns the
+  push callbacks. An older engine's calls then do nothing (push tokens still go), and its
+  `identify()` throws "Kirora was not set up".
 
-`isAvailable` becomes false when no native plugin is found. On Android/iOS it is
-optimistically true until setup answers. It indicates plugin availability, not successful
-authentication or delivery. Web, desktop and unlinked environments use safe no-ops and
-report push as unsupported, with one diagnostic unless logging is disabled. A no-op
-completion is not proof that the server saved anything.
+`isAvailable` is false when no native plugin is found (web, desktop, an app's own unit
+tests). Every call is then a no-op, and one diagnostic is logged.
 
 ## Identify the signed-in user
 
-Your authenticated server signs an HS256 user token with:
+Your server signs an HS256 user token:
 
 | Claim | Value |
 | --- | --- |
-| `sub` | Your stable user ID, matching the Kirora contact's `externalId`. |
+| `sub` | Your stable user ID, the Kirora contact's `externalId`. |
 | `iat` | Issued-at time in seconds. |
-| `exp` | Expiry in seconds, no more than 24 hours after issue. |
+| `exp` | Expiry in seconds, at most 24 hours after issue. |
 
-The server rejects expired tokens and tokens issued more than 60 seconds ahead.
-The SDK does not create or sign user tokens on the device.
+Kirora rejects expired tokens and tokens issued more than 60 seconds ahead.
 
-Call identify after your application signs the user in, and again at authenticated
-startup because the native SDK keeps its JWT in memory:
+Call identify after the user signs in, and at every launch while the app has a signed-in
+user (the native SDK keeps the token in memory only):
 
 ```dart
 try {
   await kirora.identify(); // Calls fetchUserToken.
-  // Or: await kirora.identify(tokenFromYourAuthenticatedServer);
+  // Or: await kirora.identify(tokenFromYourServer);
 } on KiroraError {
-  // Show a safe integration failure state; do not log the token.
+  // Show a failure state; never log the token.
 }
 ```
 
-The native token request has a 30-second round-trip limit. A missing/empty token or
-provider failure is reported as `UserTokenError`. Native code owns refresh and stale
-answer handling.
-
-A token that fails later, outside any call (a background refresh), has no call to throw
-from. Set `onAuthenticationFailed` to hear about it:
+`fetchUserToken` has 30 seconds to answer; a failure or an empty token is a
+`UserTokenError`. The native SDK refreshes tokens itself. When a token fails outside any
+call (a background refresh), `onAuthenticationFailed` hears it, once per failure:
 
 ```dart
 onAuthenticationFailed: (reason) {
-  // AuthenticationFailure.fetchFailed: fetchUserToken threw, gave nothing or timed out.
-  // AuthenticationFailure.refused: a 401 with no fresh token to try, or the fresh one refused.
+  // AuthenticationFailureReason.fetchFailed: fetchUserToken threw, gave nothing or timed out.
+  // AuthenticationFailureReason.refused: a 401 with no fresh token, or the fresh one refused.
   auth.askUserToSignInAgain();
 },
 ```
 
-It is called once per failure, and again only after a request with that user's token
-succeeds or `identify()` is called. It is never called for a failure a method call throws
-(`identify()`, `setPushConsent()`), a cancelled call, or while the user signs out.
+It is called again only after that user's token works or `identify()` is called, and never
+for a failure a call throws, a cancelled call, or during sign-out.
 
-Events tracked before anyone is identified remain unbound and can be adopted by the
-next user. They are not sent anonymously. On a direct switch from A to B, A's owned
-records must remain A's and wait until A can authenticate again; switching does not
-promise to flush A's records before B's.
+Events tracked before anyone is identified go as the next user to sign in. On a direct
+switch from A to B, A's waiting events stay A's and go once A can authenticate again.
 
-On application sign-out:
+### Sign out
 
 ```dart
 await kirora.logout();
 ```
 
-Native logout attempts outgoing event delivery and device detachment within one
-five-second deadline, then completes local sign-out. It does not guarantee every event
-was accepted or push access was revoked remotely. Failed detachment may retry with
-outgoing credentials held in memory for up to 24 hours, ending on success, terminal
-refusal, client destruction or process death. Offline sign-out cannot promise immediate
-server-side revocation. Finish sign-out before starting the next authenticated flow.
+Call it only from your app's sign-out. It tries to send waiting events and detach the
+device from push within five seconds, then signs out locally; neither is guaranteed to
+reach Kirora. With a user signed in, events still waiting from before sign-in are dropped,
+so the next user never adopts them. With nobody signed in (after a relaunch, before
+`identify()`), only waiting events that continued a signed-in user's visit are dropped: a
+visitor who never signed in keeps theirs, and with `trackSessions` off nothing is dropped.
 
-`destroy()` disposes client work without flushing or deleting pending events. Use logout
-for application sign-out; destroy is for client disposal.
+A failed detach is retried with backoff for up to 24 hours from the sign-out, also after a
+relaunch, using a device secret the SDK makes once per installation and sends with every
+registration (it can only detach the device). It ends on success, a refusal for good, the
+24 hours, or the client being destroyed. With nobody signed in, `logout()` still detaches
+the device using that secret. Finish sign-out before the next sign-in.
+
+`destroy()` stops the client without sending or deleting waiting events; it is not a
+sign-out.
 
 ## Track activity
 
 ```dart
 kirora.track('Order Completed', {
   'order_id': 'ORD-1042',
-  'amount': 12500,
+  'total': 125.00,
   'currency': 'NGN',
 });
 kirora.trackScreenView('Checkout');
 ```
 
-Use clear, consistent event names and property names. The server applies business limits.
-Properties are copied when tracked: maps need string keys; JSON values include lists,
-strings, finite numbers, booleans and null. `DateTime` becomes a UTC ISO string and
-objects with `toJson()` are copied through that method. Cycles, excessive nesting,
-unsupported objects and non-finite numbers drop the event with a failure-category
-diagnostic. The SDK does not intentionally log property values.
+Properties are copied as JSON when tracked: string keys; lists, strings, finite numbers,
+booleans and null. `DateTime` becomes a UTC ISO string, and objects with `toJson()` go
+through it. A cycle, a non-finite number or another object drops the event with a logged
+reason; property values are never logged.
 
-`trackSessions` defaults to true; `trackAppLifecycle` defaults to false. Both follow
-behavioural tracking consent. Automatic event collection and context come from native
-code, not a second Dart tracker.
+`trackScreenView(name)` records `Screen Viewed`; screens are never tracked automatically.
+The native SDKs add these on their own:
 
-The delivery contract targets 1,000 events / 1,000,000 serialized bytes in the queue,
-oldest-first eviction, sends at 20 queued events or a 30-second interval and background
-transitions, and batches of up to 100 events / 200,000 bytes. Native code owns persistence,
-in-memory fallback, acknowledgements, fixed event keys and server backoff. Validate those
-guarantees with the exact native SDK versions you ship.
+| Event | When | Option |
+| --- | --- | --- |
+| `Session Started` | A visit begins: the first activity after 30 minutes without any. Every event carries the visit's `context.sessionId`. | `trackSessions`, on by default |
+| `Application Installed`, `Application Opened`, `Application Updated`, `Application Backgrounded` | First launch, each launch or return to the foreground, the first launch of a new version, leaving the foreground | `trackAppLifecycle`, off by default |
+
+They follow tracking consent, and `beforeSend` never sees them.
+
+### Name events and properties
+
+Kirora matches names exactly, so a journey waiting for `Order Completed` never starts for
+`order completed`:
+
+- **Event names:** Title Case, object then past-tense action: `Plan Upgraded`,
+  `Order Completed`. One fixed name per action; ids and amounts go in properties
+  (`Product Viewed` with `{'product_id': '8812'}`, not `Viewed product 8812`). Up to 128
+  characters. Names beginning with `contact.` are Kirora's own and are refused.
+- **Property names:** lowercase snake_case (`order_id`, `plan_name`), up to 64 characters,
+  at most 16 KB of properties per event.
+- **Values:** send the same type every time (a `total` that is sometimes `42.5` and
+  sometimes `"42.50"` breaks "total greater than 40"), and amounts in major units.
+  Segment rules and journey conditions read nested values by dotted path (`order.total`).
+
+Kirora refuses an event that breaks these rules; the native SDK logs it and the others
+still go. The full guide: [Events](https://kirora.io/docs/api/events).
+
+### Delivery
+
+The native SDKs store events on the device and send them in batches (up to 100), at 20
+waiting events, every 30 seconds and when the app goes to the background, retrying with
+backoff. They keep up to 1,000 events, dropping the oldest first. `flush()` sends now; it
+completes when the attempt ends, which doesn't mean every event was accepted.
 
 ```dart
 await kirora.flush();
 ```
 
-Flush attempts delivery without intentionally bypassing consent or Retry-After. Completion
-is not a receipt that all queued events were accepted. Native background delivery is
-subject to OS execution limits.
-
-### Redact app properties before native storage
+### Redact properties with `beforeSend`
 
 ```dart
 beforeSend: (event) {
-  if (event.name == 'Sensitive Action') return null;
+  if (event.name == 'Sensitive Action') return null; // drop it
   event.properties.remove('email');
-  event.properties.remove('phone');
   return event;
 },
 ```
 
-Set this callback in `KiroraOptions`. It runs synchronously in Dart on explicit
-`track`/`trackScreenView` events before forwarding, and only for events tracking allows:
-never after a refusal, or with `requireTrackingConsent` before a grant. Properties are copied
-at the call; until native setup has said whether tracking is allowed (once, at startup),
-the hook runs when it has, and events still go in call order. Return the event or null to drop it.
-The name stays unchanged. Exceptions, invalid JSON results and recursive tracking are
-handled as dropped events.
-
-Context is empty in this wrapper hook. Native code adds automatic context later; returned
-context is not forwarded. The hook cannot redact native device/session context or
-operational reports. Native automatic session/lifecycle events bypass the wrapper hook,
-by design.
-
-Keep the callback to redaction: no collection or network side effects inside it.
+It runs in Dart, synchronously, on `track` and `trackScreenView` events before they reach
+the native SDK and its storage. It runs only for events tracking allows: never after a
+refusal, or with `requireTrackingConsent` before a grant. The name can't be changed, and
+an exception or an invalid result drops the event. It can't see the device and visit
+context the native SDK adds, or the native SDK's own events. Keep it to redaction.
 
 ## Consent and device settings
 
-These controls have different purposes:
-
 | API | Controls |
 | --- | --- |
-| `setTrackingConsent(granted)` | Behavioural events, screens, sessions, lifecycle events and influenced app-open times. |
-| `setPushConsent(granted)` | Signed-in user's marketing push choice, saved by the server. |
-| `requestPushPermission()` | System notification authorization; does not grant marketing consent. |
-| `setPushEnabled(enabled)` | This installation's push setting, retained across user sign-out; does not prompt. |
+| `setTrackingConsent(granted)` | Behavioural events, screen views, visits, lifecycle events and influenced app-open times. Remembered on the device. |
+| `setPushConsent(granted)` | The signed-in user's marketing push choice, saved by Kirora. |
+| `requestPushPermission()` | The system notification permission; not marketing consent. |
+| `setPushEnabled(enabled)` | This device's own push on/off, kept across sign-out; never prompts. |
 
-Tracking is allowed by default unless a refusal is remembered. Set
-`requireTrackingConsent: true` to require an explicit grant. Apply the user's choice:
+Tracking is allowed by default unless the user refused it; `requireTrackingConsent: true`
+waits for a grant. Withdrawing it stops collection and drops the events still waiting;
+data Kirora already accepted stays.
 
 ```dart
-kirora.setTrackingConsent(userGrantedBehaviouralTracking);
+kirora.setTrackingConsent(userGrantedTracking);
 ```
 
-Native consent storage remembers refusals separately from the main settings. Withdrawal
-stops behavioural collection/sends and clears pending behavioural work according to the
-native contract. Data already accepted by the server cannot be recalled.
-
-Save marketing consent after identify and handle failure before showing it as saved:
+Save marketing consent after identify, and show it as saved only once it succeeds:
 
 ```dart
-if (kirora.isAvailable) {
-  try {
-    await kirora.setPushConsent(userAcceptedMarketingPush);
-    // Show the saved choice.
-  } on KiroraError {
-    // Keep the earlier saved choice and offer a retry.
-  }
+try {
+  await kirora.setPushConsent(userAcceptedMarketingPush);
+} on KiroraError {
+  // Keep the earlier choice and offer a retry.
 }
 ```
 
-Marketing push requires both marketing consent and OS permission. Transactional push
-does not require marketing consent. Device registration, operational delivered/opened/
-clicked reports and detachment may continue while behavioural tracking is refused.
-Influenced app-open times are behavioural and follow tracking consent.
+Marketing push needs both marketing consent and the system permission; transactional push
+needs only the permission.
 
 ## Configure push
 
-Add `push: const KiroraPushOptions()` to the retained client's options. Use `pushAppId`
-when the workspace has multiple push apps for the platform.
+Add `push: const KiroraPushOptions()` to the options. Set `pushAppId` when the workspace
+has more than one push app for the platform.
 
-### Android / FCM
+### Android (FCM)
 
-Configure Firebase in your host app, including `android/app/google-services.json` and
-the Google Services Gradle plugin, and configure the matching FCM push app in Kirora.
-The native SDK renders Kirora's data-only FCM messages, marked `kirora = "true"`.
-Delivery still depends on Android permissions, settings and FCM/background behavior.
+Set up Firebase in your app (`android/app/google-services.json` and the Google Services
+Gradle plugin) and the matching FCM push app in Kirora. The native SDK draws Kirora's
+data-only FCM messages itself.
 
 ```dart
 push: KiroraPushOptions(
-  smallIcon: 'ic_notification',
+  smallIcon: 'ic_notification', // a drawable or mipmap name
   accentColor: '#FF5500',
   defaultChannelId: 'kirora_default',
   defaultChannelName: 'Notifications',
@@ -306,32 +290,73 @@ push: KiroraPushOptions(
 ),
 ```
 
-The small icon is an app drawable/mipmap resource name. Android channel settings control
-sound/importance. The native push library includes a messaging service. If your app
-already owns one, follow the [native Android forwarding guide](https://github.com/kiroratech/kirora-android#readme)
-and inspect the merged manifest. `kirora.onNewPushToken(token)` forwards a token received
-through another messaging integration; it does not forward message payloads. Avoid
-multiple rendering/reporting paths for the same push.
+The native push library brings its own messaging service. If your app has one already,
+follow the [native Android guide](https://github.com/kiroratech/kirora-android#readme).
+`kirora.onNewPushToken(token)` forwards a token from another messaging integration.
 
 ### iOS
 
-Enable Push Notifications and configure signing/entitlements and the matching Kirora
-push app. Enable Remote notifications background mode when your push integration needs
-it. The plugin installs native push integration at registration, before Dart setup.
-The native SDK obtains the token kind configured for the push app; a Firebase target
-also needs Firebase configured in your iOS host.
+Enable the Push Notifications capability and set up the matching push app in Kirora (a
+Firebase push app also needs Firebase in your app). The plugin hooks push in at launch, so
+no `AppDelegate` code is needed; with `KiroraAppDelegateProxyEnabled = NO`, forward the
+callbacks as the [native iOS guide](https://github.com/kiroratech/kirora-ios#readme) shows.
+Kirora pushes show in the foreground even beside `firebase_messaging` or
+`flutter_local_notifications`; only `onForegroundNotification` can hold one back.
 
-By default, no extra Dart APNs forwarding is needed. If you disable delegate proxying
-with `KiroraAppDelegateProxyEnabled = NO`, forward callbacks as described in the
-[native iOS guide](https://github.com/kiroratech/kirora-ios#readme). Kirora pushes show in the
-foreground even beside other notification libraries (`firebase_messaging`,
-`flutter_local_notifications`): only `onForegroundNotification` can hold one back.
+Delivery reports, images and buttons need a Notification Service Extension:
 
-Delivered reporting and images require a Notification Service Extension target with
-`KiroraNotificationService`. The main-app plugin pod does not create an extension for
-you. Follow the native guide for its pod and service subclass setup.
+1. In Xcode, open `ios/Runner.xcworkspace` and add a target: File > New > Target >
+   Notification Service Extension (for example `NotificationService`), with the same iOS
+   deployment target as `Runner` or lower.
+2. Add `KiroraNotificationService` to that target only:
+   - CocoaPods, in `ios/Podfile`, then run `pod install`:
+     ```ruby
+     target 'NotificationService' do
+       use_frameworks!
+       pod 'KiroraNotificationService', '0.1.0' # the same version as Kirora
+       # Until it is published: pod 'KiroraNotificationService', :path => '/absolute/path/to/kirora-ios'
+     end
+     ```
+   - Swift Package Manager: add the `kirora-ios` package to the Xcode project and its
+     `KiroraNotificationService` product to the extension target.
+3. Replace the generated `NotificationService.swift` with:
+   ```swift
+   import KiroraNotificationService
 
-### Permission, device preference and streams
+   final class NotificationService: KiroraNotificationServiceExtension {}
+   ```
+
+If the app already has an extension (for Firebase images, say), keep it and give Kirora
+its pushes first:
+
+```swift
+import FirebaseMessaging
+import KiroraNotificationService
+import UserNotifications
+
+final class NotificationService: UNNotificationServiceExtension {
+    override func didReceive(_ request: UNNotificationRequest,
+                             withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
+        if KiroraNotificationService.didReceive(request, withContentHandler: contentHandler) { return }
+        guard let content = request.content.mutableCopy() as? UNMutableNotificationContent else {
+            return contentHandler(request.content)
+        }
+        Messaging.serviceExtension().populateNotificationContent(content, withContentHandler: contentHandler)
+    }
+
+    override func serviceExtensionTimeWillExpire() {
+        // Hands back Kirora's pushes; iOS shows any other unfinished push as it arrived.
+        KiroraNotificationService.serviceExtensionTimeWillExpire()
+    }
+}
+```
+
+Every path must call `contentHandler` exactly once, with the push's own content or a
+mutable copy of it. Never hand back a new, empty `UNMutableNotificationContent`: iOS
+shows nothing for a push without a title or body. If the app sets `apiUrl`, add a
+`KiroraApiUrl` string with the same address to the extension's `Info.plist`.
+
+### Permission, status and taps
 
 ```dart
 final permission = await kirora.requestPushPermission();
@@ -341,37 +366,30 @@ final status = await kirora.getPushStatus();
 // PushStatus.enabled / disabled / denied / unanswered / unsupported
 
 await kirora.setPushEnabled(false);
-// Later: await kirora.setPushEnabled(true);
 
-final tapSubscription = kirora.onNotificationClicked.listen((data) {
-  // Observe the tap; native code reports it (waiting 1.5 s at most) and opens its link.
+final taps = kirora.onNotificationClicked.listen((data) {
+  // After the SDK has reported the tap (1.5 s at most); it opens the link itself.
 });
-final receiveSubscription = kirora.onNotificationReceived.listen((data) {
-  // Android only; iOS does not emit this stream.
+final received = kirora.onNotificationReceived.listen((data) {
+  // A push arriving in the foreground. Android only.
 });
-
-// When the owner is disposed:
-await tapSubscription.cancel();
-await receiveSubscription.cancel();
+// When done: await taps.cancel(); await received.cancel();
 ```
 
-Device push off persists across users. Turning it back on registers when permission
-already allows notifications; it does not prompt. A granted permission request also
-turns device push on.
+- `denied`: notifications are blocked, and only the system settings can undo it (the
+  permission was refused or, on Android, Kirora's channel was turned off).
+- `disabled`: permission is granted but this device isn't registered
+  (`setPushEnabled(false)`, signed out, or the registration failed).
+- `setPushEnabled` applies to whoever signs in next. Turning it on registers only if the
+  permission allows; a granted permission request turns it on too.
+- Tap data values are strings (structured values as JSON text) and include the push's own
+  keys, such as `title`, `body` and `actionUrl`. iOS also adds `kirora_action_identifier`,
+  `kirora_button_index` and `kirora_link`. Treat sender values as untrusted. A tap that
+  launched the app is delivered when you start listening.
+- `onForegroundNotification` may return a bool or a future; `false` within about 1.5
+  seconds hides the push, and no answer shows it.
 
-Tap payload values are strings; structured values may be JSON text. iOS adds
-`kirora_action_identifier`, optional `kirora_button_index` and `kirora_link`; do not assume
-those additions exist on Android. Treat all sender values as untrusted. A buffered
-launch tap is delivered when listening starts.
-
-`onForegroundNotification` works through both native bridges and can return a bool or
-future. A timely false suppresses foreground display; no answer within about 1.5 seconds
-means native default display. Keep the callback fast.
-
-### Route a link once
-
-Configure `handleDeepLink` with your application's router. This example's `router.go`
-is your existing navigation operation:
+### Route a push's link
 
 ```dart
 handleDeepLink: (url) {
@@ -381,15 +399,15 @@ handleDeepLink: (url) {
 },
 ```
 
-Return true only when your app handled the URL. Otherwise native code uses its fallback.
-Validate the scheme, host and route. Do not open the link again from the tap stream.
-A cold-start link waits for initial wrapper configuration for up to ten seconds;
-routing answers then have a 1.5-second budget. A request that reaches Dart after that
-budget is answered "not handled" without calling `handleDeepLink`: native code has
-already opened the link, so the app never routes it a second time.
+Return true only when your app handled the link; otherwise the native SDK opens it. Don't
+open it again from the tap stream. A link from the tap that launched the app waits up to
+10 seconds for setup; after that, `handleDeepLink` has 1.5 seconds to answer, and a
+late request is answered "not handled" without calling it, since the SDK has already opened
+the link.
 
-For iOS universal links, claim routes explicitly when needed, especially in scene-based
-hosts. An unhandled web URL may open through the system rather than stay in the app.
+On iOS, a link you don't take opens in Safari or in the app that owns that universal link.
+Route your own universal links here, not through `KiroraUniversalLinkHosts`: Flutter's app
+delegate accepts every web link, so a listed host would never reach your router.
 
 ## State, errors and privacy
 
@@ -399,26 +417,37 @@ final state = await kirora.getState();
 // trackingConsent, pushConsent, queuedEventCount
 ```
 
-The native snapshot makes no network request or prompt. Channel failures yield empty
-state in normal handling. `pushToken` describes the current registration, not merely
-the OS token cache. Queue count describes local pending events, not server acceptance.
+`getState()` reads the device only: no network request or prompt. `queuedEventCount` is
+events still waiting on the device.
 
-`KiroraError` is the exception base. `UserTokenError` represents token acquisition
-failure. `KiroraApiError` adds `status`, `code`, `retryAfterMs` and `retryable`. Identify
-and marketing-consent operations surface failures; quiet methods such as logout/flush
-and device push toggles do not provide remote-success receipts.
+`KiroraError` is the base exception. `UserTokenError` is a failed user token, and
+`KiroraApiError` adds `status`, `code`, `retryAfterMs` and `retryable`. Only `identify()`
+and `setPushConsent()` throw; `track()`, `logout()`, `flush()` and the push calls never do.
 
-This package adds no Dart storage/HTTP queue. Native SDKs store event properties,
-ownership/context, consent, sessions and installation/registration state in app storage.
-JWTs remain in native memory. The installation ID is random, not a hardware or advertising
-ID. Native context can include approved app, OS, screen and device manufacturer/model/
-type fields alongside locale/timezone/session/library data; network details are outside
-the current shared context contract. Review both your properties and the exact native
-artifact's collection/storage policy before release.
+The package keeps nothing in Dart: the native SDKs store events, consent, the visit and
+push registration in the app's own storage, and user tokens only in memory. Every event's
+context carries the app, OS, screen, the device's manufacturer and type, locale, time zone
+and visit; the device model and network details are never collected, since with the rest
+they help fingerprint a device.
 
-## Mock and source development
+To report how push notifications perform, the SDK sends:
 
-Use the supplied mock for host-app tests without native code:
+- the app's version, the OS version, and the device's language and time zone, when it
+  registers the device;
+- the time the app is opened or returns to the foreground;
+- when a Kirora notification is shown or tapped.
+
+Behavioural tracking consent also controls app-open times for influenced opens.
+Push registration details, delivery receipts and notification taps are operational
+push reports and are separate from behavioural tracking consent and marketing push
+consent. Disabling behavioural tracking does not disable those operational reports.
+
+It never sends hardware or advertising identifiers. The device id is a random value the
+SDK creates and keeps in the app's own storage; it is deleted with the app.
+
+## Testing your app
+
+Use the mock in your app's tests:
 
 ```dart
 import 'package:kirora_flutter/testing.dart';
@@ -429,35 +458,25 @@ kirora.track('Order Completed', {'order_id': 'ORD-1042'});
 final event = kirora.tracked.single;
 ```
 
-The mock records calls/events, has configurable state/errors and can simulate notification
-streams. It does not reproduce a native queue, authentication, FCM/APNs or engine lifetime.
-Like production, it skips `beforeSend` for events tracking doesn't allow. Use it for
-application wiring assertions, not proof of native conformance.
+It records calls and events, lets you set state and errors, and can simulate notification
+streams. Like the real client, it skips `beforeSend` for events tracking doesn't allow. It
+has no native queue, authentication or push.
 
-From this checkout:
+## Developing this package
 
 ```sh
-flutter pub get
-flutter analyze
-cd example
-flutter pub get
-flutter build apk --debug
+flutter pub get && flutter analyze && flutter test
+(cd example/android && ./gradlew :kirora_flutter:testDebugUnitTest)   # Android bridge
+(cd example && flutter build apk --debug)
+(cd example && KIRORA_IOS_PATH=/path/to/kirora-ios flutter build ios --simulator)
 ```
 
-The Android example builds without Firebase configuration; live push needs your own
-Firebase project and device. The iOS example builds for the simulator with
-`KIRORA_IOS_PATH=/path/to/kirora-ios flutter build ios --simulator` with Swift Package
-Manager. With CocoaPods, Flutter creates `example/ios/Podfile` on the first build: add the
-`pod 'Kirora'` line above to it. Push on iOS needs your own signing, capabilities and a
-device. CI builds both platforms on every code change.
+The Android example builds without Firebase; live push needs your own Firebase project and
+a device. With CocoaPods, Flutter creates `example/ios/Podfile` on the first build: add the
+`pod 'Kirora'` line above to it. CI builds both platforms on every change. Real-device push
+and several engines in one app are not covered by automated tests.
 
-Run the suite with `flutter test`; it covers the channel contract against a mock
-messenger, not a native engine. The Android bridge has Robolectric tests:
-`cd example/android && ./gradlew :kirora_flutter:testDebugUnitTest`.
-iOS plugin linking (built only in CI), real-device push and multi-engine execution remain
-unverified.
+## License
 
-## License and publication
-
-MIT licensed: see [LICENSE](LICENSE). `publish_to: none` keeps it off pub.dev until the
+MIT: see [LICENSE](LICENSE). `publish_to: none` keeps the package off pub.dev until the
 native SDKs are published.

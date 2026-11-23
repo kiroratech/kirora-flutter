@@ -14,6 +14,10 @@ public final class KiroraFlutterPlugin: NSObject, FlutterPlugin {
     private var tapsOn = false
     /// This engine set Kirora up, and has a client to end when it goes.
     private var configured = false
+    /// Read for its view controller: none means a headless engine (a background task's).
+    private weak var registrar: FlutterPluginRegistrar?
+    /// This engine has shown the app's UI.
+    private var hasUi = false
 
     /// The engine that set Kirora up last: only it may change the process-wide callbacks and tap
     /// listener. Used on the main thread only.
@@ -30,7 +34,10 @@ public final class KiroraFlutterPlugin: NSObject, FlutterPlugin {
         KiroraWrapper.installPushIntegration()
         let channel = FlutterMethodChannel(name: channelName, binaryMessenger: registrar.messenger())
         let instance = KiroraFlutterPlugin(channel: channel)
+        instance.registrar = registrar
         registrar.addMethodCallDelegate(instance, channel: channel)
+        // Published, or the engine never calls detachFromEngine and its client outlives it.
+        registrar.publish(instance)
     }
 
     public func detachFromEngine(for registrar: FlutterPluginRegistrar) {
@@ -58,9 +65,20 @@ public final class KiroraFlutterPlugin: NSObject, FlutterPlugin {
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let args = call.arguments as? [String: Any] ?? [:]
         if call.method == "configure" {
+            // One client per process. A headless engine never takes it from the app's UI: that would
+            // leave the UI with no client. Refused, its Kirora tracks nothing and identify() throws.
+            hasUi = hasUi || registrar?.viewController != nil
+            if !hasUi, let owner = Self.owner, owner !== self, owner.hasUi, owner.kirora != nil {
+                result(FlutterError(code: "CONFIGURE_ERROR",
+                                    message: "the app's UI already set Kirora up: set it up in the main isolate only",
+                                    details: nil))
+                return
+            }
             configure(args)
             // Whether tracking is allowed now, so Dart's beforeSend never sees an event it isn't.
-            result(["trackingConsent": kirora?.getState().trackingConsent ?? false])
+            // Not getState(), which reads the event queue from disk on the main thread.
+            // Null when unknown, as on Android: Dart then uses its default.
+            result(["trackingConsent": kirora.map { $0.trackingConsent as Any } ?? NSNull()])
             return
         }
         if call.method == "setNotificationEvents" {
@@ -157,13 +175,14 @@ public final class KiroraFlutterPlugin: NSObject, FlutterPlugin {
         endClient()
         configured = true
         if let previous = Self.owner, previous !== self {
-            // The older engine's tap listener sends to a Dart side that is no longer Kirora's.
-            previous.setTaps(on: false)
+            // One native client per process, and this setup replaces it: the older engine's calls
+            // now answer "not set up", and its tap listener stops taking this engine's taps.
+            previous.endClient()
         }
         Self.owner = self
         KiroraWrapper.setSDK(name: "kirora-flutter", version: args["sdkVersion"] as? String ?? "0.1.0")
 
-        var fetchUserToken: (@Sendable () async throws -> String)?
+        var fetchUserToken: (@Sendable () async throws -> String?)?
         if args["hasTokenProvider"] as? Bool == true {
             let channel = self.channel
             // The request closure can't name the object it is passed to: it reaches it here.
@@ -195,7 +214,7 @@ public final class KiroraFlutterPlugin: NSObject, FlutterPlugin {
         }
 
         let push = args["push"] as? Bool == true
-            ? PushOptions(pushAppId: (args["pushAppId"] as? String).flatMap { $0.isEmpty ? nil : $0 })
+            ? KiroraPushOptions(pushAppId: (args["pushAppId"] as? String).flatMap { $0.isEmpty ? nil : $0 })
             : nil
         kirora = Kirora(options: KiroraOptions(
             clientKey: (args["clientKey"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines),

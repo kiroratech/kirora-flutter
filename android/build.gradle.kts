@@ -66,9 +66,13 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
 dependencies {
     val kiroraSdkVersion = (findProperty("kiroraAndroidSdkVersion") as String?) ?: "0.1.0"
     // The core SDK, and the Firebase side of push (FCM service, notification permission). Both are
-    // `api` so a host's own FirebaseMessagingService can forward to KiroraPush.
+    // `api` so a host's own FirebaseMessagingService can forward to KiroraPush. An app without push
+    // sets `kiroraPush=false` in its gradle.properties: no Firebase, no notification permission.
+    // The core SDK runs without it, and the push calls answer `unsupported`.
     api("com.kirora:android-sdk:$kiroraSdkVersion")
-    api("com.kirora:android-sdk-push:$kiroraSdkVersion")
+    if ((findProperty("kiroraPush") as String?)?.toBoolean() != false) {
+        api("com.kirora:android-sdk-push:$kiroraSdkVersion")
+    }
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("androidx.test:core:1.7.0")
