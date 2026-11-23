@@ -1,0 +1,31 @@
+name: Publish to pub.dev
+
+# Pushing a tag vX.Y.Z publishes that version, using pub.dev's automated publishing (no stored
+# credentials: GitHub's OIDC token). pub.dev accepts it only from this repository, for tags
+# matching v{{version}}, from the pub.dev environment, as set in the package's Admin page.
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # Approval rules for publishing live on this environment (Settings > Environments).
+    environment: pub.dev
+    permissions:
+      id-token: write # for pub.dev's OIDC login
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      # Sets up the OIDC token that `pub publish` uses.
+      - uses: dart-lang/setup-dart@v1
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze --no-fatal-infos
+      - run: flutter test
+      - run: flutter pub publish --dry-run
+      - run: flutter pub publish --force

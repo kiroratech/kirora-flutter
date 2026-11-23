@@ -19,3 +19,13 @@ CocoaPods. A new kirora-ios release: `tool/sync_kirora_ios.sh <tag>` and the sam
 The Android example builds without Firebase; live push needs your own Firebase project and
 a device. CI builds both platforms against the released native SDKs on every change. Real-device
 push and several engines in one app are not covered by automated tests.
+
+## Release
+
+1. Set the new version in `pubspec.yaml` and `lib/src/version.dart` (a test checks they agree),
+   and add it to `CHANGELOG.md`. For a new kirora-ios, run `tool/sync_kirora_ios.sh <tag>` and
+   set the same exact version in `ios/kirora_flutter/Package.swift`, the podspec comment and the
+   README's extension lines; for a new Android SDK, the default in `android/build.gradle.kts`.
+2. Merge to `main` with CI green.
+3. Tag the commit `vX.Y.Z` and push the tag. The "Publish to pub.dev" workflow tests the package
+   and publishes it; pub.dev accepts only tags matching `v{{version}}` from this repository.
